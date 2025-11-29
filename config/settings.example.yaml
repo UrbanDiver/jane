@@ -1,0 +1,39 @@
+models:
+  stt:
+    size: "medium"        # e.g., tiny / base / small / medium / large-v3
+  llm:
+    name: "Qwen2.5-32B-Instruct-Q4_K_M"
+    context_length: 4096
+    fast_mode: false      # true = prefer speed over quality
+  tts:
+    model_name: "tts_models/en/ljspeech/tacotron2-DDC"
+
+conversation:
+  style: "concise"        # concise | chatty
+  max_response_tokens: 512
+
+safety:
+  mode: "conservative"    # conservative | relaxed
+  trusted_directories:
+    - "%USERPROFILE%/Desktop"
+    - "%USERPROFILE%/Documents"
+    - "%USERPROFILE%/Downloads"
+  require_confirmation_for_destructive: true
+  allow_always_trust_actions: true
+
+interaction:
+  wake_word_enabled: true
+  push_to_talk_enabled: true
+
+logging:
+  enabled: true
+  level: "info"           # info | debug | trace
+  directory: "logs"
+  include_prompts: true   # include LLM prompts/responses in logs
+  panic_switch_enabled: true
+
+server:
+  host: "0.0.0.0"
+  port: 5000
+
+

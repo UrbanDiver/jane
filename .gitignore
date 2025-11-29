@@ -1,0 +1,58 @@
+# Python
+venv/
+env/
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+*.so
+*.egg
+*.egg-info/
+dist/
+build/
+.pytest_cache/
+
+# Models (too large for git)
+models/
+*.gguf
+*.bin
+*.safetensors
+*.pt
+*.pth
+
+# Environment variables
+.env
+.env.local
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+
+# Node/Tauri (for frontend)
+node_modules/
+target/
+dist/
+
+# Audio files (for testing)
+*.wav
+*.mp3
+test_audio.*
+
+# Screenshots
+screenshot*.png
+test_screen*.png
+
+# Temporary files
+temp_*
+*.tmp

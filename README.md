@@ -32,7 +32,8 @@ Jane is a self-hosted AI assistant that runs entirely on your local machine, pow
 ## Current Status
 
 ✅ **Phase 0 Complete** - Environment setup and dependencies installed
-🚧 **Phase 1 In Progress** - Speech-to-Text Pipeline
+✅ **Phase 1 Complete** - Speech-to-Text Pipeline implemented
+⏳ **Testing Phase 1** - Ready for audio capture and transcription testing
 
 See [Implementation Plan](voice-assistant-implementation-plan.md) for detailed roadmap.
 

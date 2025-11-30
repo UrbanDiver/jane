@@ -15,6 +15,7 @@ from src.backend.input_controller import InputController
 from typing import Dict, List, Optional
 import json
 import time
+import os
 
 
 class AssistantCore:
@@ -272,7 +273,7 @@ Be concise and helpful. When asked to perform actions, use the available functio
         use_functions: bool = True
     ) -> str:
         """
-        Process user input and generate response.
+        Process user input and generate response with function calling support.
         
         Args:
             user_input: User's input text
@@ -291,8 +292,19 @@ Be concise and helpful. When asked to perform actions, use the available functio
         # Get LLM response
         print("🤔 Thinking...")
         
-        # For now, use simple chat completion
-        # TODO: Implement function calling integration with LLM
+        # Check if we should use function calling
+        if use_functions:
+            # Try to detect if a function call is needed
+            function_result = self._try_function_call(user_input)
+            if function_result:
+                # Function was called, get LLM response with the result
+                function_message = f"Function result: {function_result}"
+                self.conversation_history.append({
+                    "role": "system",
+                    "content": function_message
+                })
+        
+        # Get LLM response
         result = self.llm.chat(
             self.conversation_history[-10:],  # Last 10 messages for context
             max_tokens=max_tokens,
@@ -308,6 +320,69 @@ Be concise and helpful. When asked to perform actions, use the available functio
         })
         
         return response
+    
+    def _try_function_call(self, user_input: str) -> Optional[str]:
+        """
+        Try to detect and execute a function call based on user input.
+        
+        Args:
+            user_input: User's input text
+            
+        Returns:
+            Function result string if function was called, None otherwise
+        """
+        user_lower = user_input.lower()
+        
+        # Time-related queries
+        if any(phrase in user_lower for phrase in ["what time", "what's the time", "time is it", "current time"]):
+            result = self.function_handler.execute("get_current_time")
+            if result["success"]:
+                return f"The current time is {result['result']}"
+        
+        # Date-related queries
+        if any(phrase in user_lower for phrase in ["what date", "what's the date", "date is it", "current date", "today's date"]):
+            result = self.function_handler.execute("get_current_date")
+            if result["success"]:
+                return f"Today's date is {result['result']}"
+        
+        # Date and time queries (check this before individual time/date checks)
+        if any(phrase in user_lower for phrase in ["what date and time", "date and time", "current datetime", "date and time is it"]):
+            result = self.function_handler.execute("get_current_datetime")
+            if result["success"]:
+                return f"The current date and time is {result['result']}"
+        
+        # File listing queries
+        if any(phrase in user_lower for phrase in ["list files", "show files", "what files", "files in"]):
+            # Try to extract directory from query
+            import os
+            if "desktop" in user_lower:
+                dir_path = os.path.join(os.path.expanduser("~"), "Desktop")
+            elif "documents" in user_lower:
+                dir_path = os.path.join(os.path.expanduser("~"), "Documents")
+            elif "downloads" in user_lower:
+                dir_path = os.path.join(os.path.expanduser("~"), "Downloads")
+            else:
+                dir_path = os.path.join(os.path.expanduser("~"), "Documents")
+            
+            result = self.file_ctrl.list_directory(dir_path)
+            if result["success"]:
+                file_count = len(result["files"])
+                file_list = ", ".join([f["name"] for f in result["files"][:10]])
+                if file_count > 10:
+                    file_list += f", and {file_count - 10} more"
+                return f"Found {file_count} items: {file_list}"
+        
+        # Running apps queries
+        if any(phrase in user_lower for phrase in ["running apps", "what apps", "open apps", "running applications"]):
+            result = self.app_ctrl.get_running_apps()
+            if result["success"]:
+                app_count = result["count"]
+                app_list = ", ".join([app["name"] for app in result["apps"][:10]])
+                if app_count > 10:
+                    app_list += f", and {app_count - 10} more"
+                return f"Found {app_count} running applications: {app_list}"
+        
+        return None
     
     def run_voice_loop(self):
         """

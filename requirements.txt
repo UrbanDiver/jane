@@ -11,7 +11,7 @@ pyaudio>=0.2.14
 webrtcvad>=2.0.10
 
 # TTS
-TTS>=0.21.0
+TTS>=0.21.0  # Coqui TTS - works with Python 3.11
 
 # Computer control
 pywinauto>=0.6.8
@@ -40,4 +40,10 @@ sentence-transformers>=2.2.2
 pytest>=7.4.3
 black>=23.12.0
 
+# Backend server
+flask>=3.0.0
+flask-cors>=4.0.0
+
+# Process management
+psutil>=5.9.0
 

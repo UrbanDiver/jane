@@ -4,43 +4,15 @@ A GPU-accelerated, privacy-first voice-based personal assistant for Windows desk
 
 ## Overview
 
-Jane is a self-hosted AI assistant that runs entirely on your local machine, powered by your RTX 4090. No cloud services are required for core operation: speech recognition, language understanding, and speech synthesis all run locally. Jane is designed to be both:
-- A **Jarvis-style PC automation copilot** (apps, files, keyboard/mouse), and
-- A **conversational Q&A / coding / reasoning helper**.
+Jane is a self-hosted AI assistant that runs entirely on your local machine, powered by your RTX 4090. No cloud services, complete privacy, and full computer control capabilities.
 
-## Core Experience
+## Features
 
-- **Interaction Modes**:
-  - **Wake word** (hands-free) and **push-to-talk** (precise, good for noisy environments).
-  - **Configurable conversation style**: concise/neutral vs more chatty/personable.
-- **Model Strategy**:
-  - **Quality-first** by default (larger local models, better reasoning).
-  - Optional **Fast Mode** that prioritizes latency over maximum quality.
-
-## Features (Planned Roadmap)
-
-- **Voice Control**: Natural voice commands with wake word detection and push-to-talk.
-- **Computer Automation**: Control files, applications, keyboard, and mouse (with safety checks).
-- **Information Retrieval**: Answer questions, help with coding, and provide explanations.
-- **Screen Understanding**: Vision-based screen analysis (later phase).
-- **Privacy-First**: All core processing happens locally on your machine.
-
-## Safety & Permissions
-
-- **Conservative by default**:
-  - Destructive actions (deleting/moving files, closing apps, etc.) require explicit confirmation.
-  - Ability to mark some actions as “always allow” after explicit opt-in.
-- **Trusted Locations**:
-  - Out of the box, Jane operates primarily in user-owned folders like `Desktop`, `Documents`, and `Downloads`.
-  - Additional folders can be added to a **trusted list** in settings.
-  - Access outside trusted locations always requires explicit permission.
-
-## Logging & Debugging
-
-- **Detailed local logging** (no data leaves your machine):
-  - STT transcripts, parsed commands, function calls, and errors.
-  - Performance metrics (latency, VRAM usage, tokens/sec) for tuning.
-- Configurable log levels (info/debug/trace) and a **panic switch** to clear logs and/or turn logging off.
+- **Voice Control**: Natural voice commands with wake word detection
+- **Computer Automation**: Control files, applications, keyboard, and mouse
+- **Information Retrieval**: Answer questions and provide assistance
+- **Screen Understanding**: Vision-based screen analysis
+- **Privacy-First**: All processing happens locally on your machine
 
 ## Hardware Requirements
 
@@ -52,28 +24,65 @@ Jane is a self-hosted AI assistant that runs entirely on your local machine, pow
 ## Technology Stack
 
 - **STT**: faster-whisper (GPU-accelerated Whisper)
-- **LLM**: Qwen 2.5 32B (GGUF via llama.cpp) or similar high-quality local model
+- **LLM**: Qwen 2.5 32B or Llama 3.1 70B (via llama.cpp)
 - **TTS**: Coqui TTS / StyleTTS2
 - **Frontend**: Tauri (Rust + Web)
 - **Backend**: Python with CUDA acceleration
 
 ## Current Status
 
-🚧 **In Development** – See [Implementation Plan](voice-assistant-implementation-plan.md) for the detailed roadmap and phases.
+✅ **Phase 0 Complete** - Environment setup and dependencies installed
+🚧 **Phase 1 In Progress** - Speech-to-Text Pipeline
+
+See [Implementation Plan](voice-assistant-implementation-plan.md) for detailed roadmap.
 
 ## Quick Start
 
-*Coming soon – project is in early development.*
+### Prerequisites
+- Python 3.11+ (3.11.9 recommended)
+- CUDA 12.x
+- NVIDIA GPU (RTX 4090 recommended)
+- Windows 11
+
+### Setup
+
+1. **Clone the repository:**
+   ```powershell
+   git clone <repository-url>
+   cd jane
+   ```
+
+2. **Set up Python environment:**
+   ```powershell
+   # Create virtual environment
+   py -3.11 -m venv venv
+   
+   # Activate virtual environment
+   .\venv\Scripts\Activate.ps1
+   
+   # Install dependencies
+   pip install -r requirements.txt
+   playwright install chromium
+   ```
+
+3. **Verify installation:**
+   ```powershell
+   python test_imports.py
+   ```
+
+For detailed setup instructions, see [PHASE0_STATUS.md](PHASE0_STATUS.md).
 
 ## Documentation
 
-- [Implementation Plan](voice-assistant-implementation-plan.md) – Detailed step-by-step development plan
-- `PROJECT_CHECKLIST.md` – High-level checklist tracking progress across phases
+- [Implementation Plan](voice-assistant-implementation-plan.md) - Detailed step-by-step development plan
+- [Phase 0 Status](PHASE0_STATUS.md) - Environment setup status and verification
+- [Setup Complete](SETUP_COMPLETE.md) - Phase 0 completion summary
+- [Python Version Requirements](PYTHON_VERSION_REQUIREMENTS.md) - Python compatibility guide
 
 ## Performance Targets
 
 - STT latency: <500ms
-- LLM inference: 60–120 tokens/second
+- LLM inference: 60-120 tokens/second
 - TTS latency: <2s
 - End-to-end interaction: <5s
 

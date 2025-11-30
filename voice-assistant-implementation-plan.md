@@ -4,37 +4,6 @@
 **Architecture:** Self-hosted, GPU-accelerated, Privacy-first
 **Estimated Timeline:** 8-12 weeks
 
-**Product Summary (Jane v1)**  
-Jane is a local, GPU-accelerated, privacy-first AI assistant for Windows that acts both as:
-- A **PC automation copilot** (apps, files, input control), and  
-- A **conversational Q&A / coding / reasoning helper**.
-
-All core functionality runs **offline by default**, with no cloud dependencies. Jane supports both **wake word** and **push-to-talk** interaction, a **minimal system tray UI** by default, and an expandable **chat window** for deeper conversations.
-
-**Key Design Choices**
-- **Quality-first models**, with an optional **Fast Mode** that trades some quality for latency.
-- **Configurable conversation style**: concise/neutral vs more chatty/personable.
-- **Conservative safety by default** for computer control (file/app/input), with:
-  - Explicit confirmations for destructive actions (delete, overwrite, etc.).
-  - **Trusted folders** (e.g., Documents, Desktop, Downloads + user-configured) where Jane can operate more freely.
-  - One-off prompts before touching anything outside trusted locations, with “always allow in future” as an explicit opt-in.
-- **Detailed local logging and debugging**, with configurable log levels and a “panic switch” to clear and/or disable logs.
-
-**Phase Ordering (High-Level)**
-1. **Core Voice Loop & Models**
-   - Environment setup, STT (faster-whisper), TTS (Coqui), LLM (Qwen via llama.cpp).
-   - End-to-end voice → text → reasoning → speech pipeline, no computer control yet.
-2. **Configuration & Logging**
-   - Settings for conversation style, quality vs speed, safety/trusted folders, logging level.
-   - Local structured logs for commands, function calls, errors, and performance metrics.
-3. **Computer Control (Guarded)**
-   - File operations, app control, keyboard/mouse, screenshots – all behind conservative safety rules and confirmations.
-4. **Desktop Application**
-   - Tauri-based tray UI + optional chat window connected to the backend.
-5. **Advanced Features**
-   - Wake word integration.
-   - Vision/screenshot understanding, RAG, plugins, etc.
-
 ---
 
 ## Prerequisites

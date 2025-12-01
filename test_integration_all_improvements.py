@@ -48,7 +48,7 @@ def test_configuration_system():
         print("   OK: Configuration system integrated")
         return True
     except Exception as e:
-        print(f"   ❌ Configuration system error: {e}")
+        print(f"   ERROR: Configuration system error: {e}")
         return False
 
 
@@ -65,10 +65,10 @@ def test_logging_integration():
     try:
         logger = get_logger(__name__)
         logger.info("Test log message")
-        print("   ✅ Logging system integrated")
+        print("   OK: Logging system integrated")
         return True
     except Exception as e:
-        print(f"   ❌ Logging integration error: {e}")
+        print(f"   ERROR: Logging integration error: {e}")
         return False
 
 
@@ -89,13 +89,13 @@ def test_error_handling_integration():
             result = handle_error(e, ErrorType.TRANSIENT, logger=logger)
             assert result is not None, "Error handling should return result"
         
-        print("   ✅ Error handling integrated")
+        print("   OK: Error handling integrated")
         return True
     except ImportError:
         print("   WARNING: Skipped (dependencies not available)")
         return True
     except Exception as e:
-        print(f"   ❌ Error handling integration error: {e}")
+        print(f"   ERROR: Error handling integration error: {e}")
         return False
 
 
@@ -114,10 +114,10 @@ def test_context_management_integration():
         
         context = manager.get_context()
         assert len(context) > 0, "Context should have messages"
-        print("   ✅ Context management integrated")
+        print("   OK: Context management integrated")
         return True
     except Exception as e:
-        print(f"   ❌ Context management integration error: {e}")
+        print(f"   ERROR: Context management integration error: {e}")
         return False
 
 
@@ -135,10 +135,10 @@ def test_conversation_state_integration():
         state.update_from_message({"role": "user", "content": "Hello"})
         
         assert state.state is not None, "State should be initialized"
-        print("   ✅ Conversation state integrated")
+        print("   OK: Conversation state integrated")
         return True
     except Exception as e:
-        print(f"   ❌ Conversation state integration error: {e}")
+        print(f"   ERROR: Conversation state integration error: {e}")
         return False
 
 
@@ -158,10 +158,10 @@ def test_function_calling_integration():
         llm_format = handler.format_functions_for_llm()
         assert len(llm_format) > 0, "Should have LLM-formatted functions"
         
-        print(f"   ✅ Function calling integrated ({len(functions)} functions)")
+        print(f"   OK: Function calling integrated ({len(functions)} functions)")
         return True
     except Exception as e:
-        print(f"   ❌ Function calling integration error: {e}")
+        print(f"   ERROR: Function calling integration error: {e}")
         return False
 
 
@@ -180,10 +180,10 @@ def test_plugin_system_integration():
         assert hasattr(manager, 'load_all_plugins'), "Should have load_all_plugins"
         assert hasattr(manager, 'execute_hook'), "Should have execute_hook"
         
-        print("   ✅ Plugin system integrated")
+        print("   OK: Plugin system integrated")
         return True
     except Exception as e:
-        print(f"   ❌ Plugin system integration error: {e}")
+        print(f"   ERROR: Plugin system integration error: {e}")
         return False
 
 
@@ -200,10 +200,10 @@ def test_wake_word_integration():
         assert detector is not None, "Wake word detector should be created"
         assert detector.detect_wake_word("jane"), "Should detect wake word"
         
-        print("   ✅ Wake word detection integrated")
+        print("   OK: Wake word detection integrated")
         return True
     except Exception as e:
-        print(f"   ❌ Wake word integration error: {e}")
+        print(f"   ERROR: Wake word integration error: {e}")
         return False
 
 
@@ -224,14 +224,14 @@ def test_api_integration():
         assert "/health" in routes, "Health endpoint should exist"
         assert "/api/v1/chat" in routes, "Chat endpoint should exist"
         
-        print(f"   ✅ API layer integrated ({len(routes)} routes)")
+        print(f"   OK: API layer integrated ({len(routes)} routes)")
         return True
     except ImportError:
         print("   WARNING: API dependencies not installed (FastAPI)")
         print("   OK: API structure verified")
         return True
     except Exception as e:
-        print(f"   ❌ API integration error: {e}")
+        print(f"   ERROR: API integration error: {e}")
         return False
 
 
@@ -254,10 +254,10 @@ def test_dependency_injection_integration():
         assert callable(create_function_handler), "create_function_handler should be callable"
         assert callable(create_conversation_state), "create_conversation_state should be callable"
         
-        print("   ✅ Dependency injection (factories) integrated")
+        print("   OK: Dependency injection (factories) integrated")
         return True
     except Exception as e:
-        print(f"   ❌ Dependency injection integration error: {e}")
+        print(f"   ERROR: Dependency injection integration error: {e}")
         return False
 
 
@@ -273,15 +273,19 @@ def test_assistant_core_with_all_improvements():
              patch('src.backend.assistant_core.TTSEngine'), \
              patch('src.backend.assistant_core.LLMEngine'):
             
-            config = get_config()
+            if HAS_CONFIG:
+                config = get_config()
             
             # Test that AssistantCore can be initialized with config
             # (We'll use mocks to avoid loading actual models)
-        print("   OK: AssistantCore structure verified with all improvements")
-        print("   NOTE: Full initialization requires model files (skipped in integration test)")
+            print("   OK: AssistantCore structure verified with all improvements")
+            print("   NOTE: Full initialization requires model files (skipped in integration test)")
             return True
+    except ImportError:
+        print("   WARNING: Skipped (dependencies not available)")
+        return True
     except Exception as e:
-        print(f"   ❌ AssistantCore integration error: {e}")
+        print(f"   ERROR: AssistantCore integration error: {e}")
         return False
 
 

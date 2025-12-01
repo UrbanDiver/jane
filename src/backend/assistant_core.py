@@ -933,14 +933,6 @@ Be concise and helpful. When asked to perform actions, use the available functio
         if len(self.conversation_history) % 10 == 0:
             self.memory_manager.clear_gpu_cache()
             self.memory_manager.log_memory_usage("(periodic cleanup)")
-                
-                # Try to provide user feedback
-                try:
-                    self.speak("I encountered an error. Please try again.")
-                except:
-                    pass  # Don't fail if TTS also fails
-                
-                continue
     
     def get_status(self) -> Dict:
         """Get status of all components."""

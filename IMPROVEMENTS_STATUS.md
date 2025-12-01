@@ -159,7 +159,7 @@
 - **Started:** 2025-11-30
 - **Completed:** 2025-11-30
 - **Tests:** ✅ All Pass
-- **Commit:** [commit hash will be added]
+- **Commit:** [see git log -2 for commit hash]
 - **Notes:** Keyword-based wake word detection implemented. Configurable wake words, command extraction, continuous listening mode.
 
 ### Step 5.2: API Layer (Optional)
@@ -248,7 +248,7 @@ None at this time.
 - `e7abb66` - Dependency Injection
 
 **Phase 5:**
-- `[pending]` - Wake Word Detection
+- `[see git log]` - Wake Word Detection
 
 ---
 

@@ -16,10 +16,12 @@ from src.backend.context_manager import ContextManager
 from src.config import load_config, get_config, AssistantConfig
 from src.utils.logger import get_logger, log_performance, log_timing
 from src.utils.error_handler import handle_error
+from src.utils.sentence_splitter import SentenceSplitter
 from typing import Dict, List, Optional
 import json
 import time
 import os
+import threading
 
 
 class AssistantCore:
@@ -328,7 +330,8 @@ Be concise and helpful. When asked to perform actions, use the available functio
         self,
         user_input: str,
         max_tokens: int = 512,
-        use_functions: bool = True
+        use_functions: bool = True,
+        stream: bool = True
     ) -> str:
         """
         Process user input and generate response with function calling support.
@@ -337,6 +340,7 @@ Be concise and helpful. When asked to perform actions, use the available functio
             user_input: User's input text
             max_tokens: Maximum tokens to generate
             use_functions: Whether to allow function calling
+            stream: Whether to stream the response (default: True)
             
         Returns:
             Assistant's response text
@@ -350,19 +354,19 @@ Be concise and helpful. When asked to perform actions, use the available functio
         # Get LLM response
         self.logger.info("🤔 Thinking...")
         
-            # Check if we should use function calling
-            if use_functions:
-                # Try to detect if a function call is needed
-                function_result = self._try_function_call(user_input)
-                if function_result:
-                    # Function was called, get LLM response with the result
-                    # Mark as important so it's retained during pruning
-                    function_message = {
-                        "role": "system",
-                        "content": f"Function result: {function_result}",
-                        "important": True
-                    }
-                    self.conversation_history.append(function_message)
+        # Check if we should use function calling
+        if use_functions:
+            # Try to detect if a function call is needed
+            function_result = self._try_function_call(user_input)
+            if function_result:
+                # Function was called, get LLM response with the result
+                # Mark as important so it's retained during pruning
+                function_message = {
+                    "role": "system",
+                    "content": f"Function result: {function_result}",
+                    "important": True
+                }
+                self.conversation_history.append(function_message)
         
         # Manage context before getting LLM response
         managed_history = self.context_manager.manage_context(
@@ -370,19 +374,24 @@ Be concise and helpful. When asked to perform actions, use the available functio
             add_summary=True
         )
         
-        # Get LLM response
-        result = self.llm.chat(
-            managed_history,  # Use managed context
-            max_tokens=max_tokens or self.config.llm.max_tokens,
-            temperature=self.config.llm.temperature
-        )
-        
         # Update conversation history (context manager may have modified it)
         if managed_history != self.conversation_history:
             self.logger.debug(f"Context managed: {len(self.conversation_history)} -> {len(managed_history)} messages")
             self.conversation_history = managed_history
         
-        response = result['response']
+        # Get LLM response (streaming or non-streaming)
+        if stream:
+            response = self._process_streaming_response(
+                managed_history,
+                max_tokens or self.config.llm.max_tokens
+            )
+        else:
+            result = self.llm.chat(
+                managed_history,
+                max_tokens=max_tokens or self.config.llm.max_tokens,
+                temperature=self.config.llm.temperature
+            )
+            response = result['response']
         
         # Add assistant response to history
         self.conversation_history.append({
@@ -391,6 +400,92 @@ Be concise and helpful. When asked to perform actions, use the available functio
         })
         
         return response
+    
+    def _process_streaming_response(
+        self,
+        messages: List[Dict[str, str]],
+        max_tokens: int
+    ) -> str:
+        """
+        Process streaming LLM response with early TTS synthesis.
+        
+        Args:
+            messages: Conversation history
+            max_tokens: Maximum tokens to generate
+        
+        Returns:
+            Complete response text
+        """
+        sentence_splitter = SentenceSplitter()
+        full_response = ""
+        sentences_spoken = []
+        
+        self.logger.debug("Starting streaming response...")
+        
+        try:
+            # Stream response from LLM
+            stream = self.llm.stream_chat(
+                messages,
+                max_tokens=max_tokens,
+                temperature=self.config.llm.temperature
+            )
+            
+            # Process stream
+            for chunk in stream:
+                if chunk.get('done'):
+                    break
+                
+                delta = chunk.get('delta', '')
+                if not delta:
+                    continue
+                
+                full_response += delta
+                
+                # Check for complete sentences
+                sentences = sentence_splitter.add_text(delta)
+                
+                # Speak complete sentences as they arrive
+                for sentence in sentences:
+                    if sentence and sentence not in sentences_spoken:
+                        sentences_spoken.append(sentence)
+                        self.logger.debug(f"Speaking sentence: '{sentence[:50]}...'")
+                        # Speak in background thread to not block streaming
+                        threading.Thread(
+                            target=self.tts.speak,
+                            args=(sentence,),
+                            kwargs={"wait": True},
+                            daemon=True
+                        ).start()
+            
+            # Speak any remaining text
+            remaining = sentence_splitter.flush()
+            if remaining:
+                full_response_text = full_response.strip()
+                # Only speak remaining if it's substantial
+                if len(remaining) > 20:
+                    self.logger.debug(f"Speaking remaining text: '{remaining[:50]}...'")
+                    threading.Thread(
+                        target=self.tts.speak,
+                        args=(remaining,),
+                        kwargs={"wait": True},
+                        daemon=True
+                    ).start()
+            
+            self.logger.info(f"Streaming complete: {len(full_response)} characters")
+            return full_response.strip()
+            
+        except Exception as e:
+            error_info = handle_error(e, context={"operation": "streaming_response"}, logger=self.logger)
+            self.logger.error(f"Error during streaming: {error_info['message']}", exc_info=True)
+            
+            # Fallback to non-streaming
+            self.logger.warning("Falling back to non-streaming response")
+            result = self.llm.chat(
+                messages,
+                max_tokens=max_tokens,
+                temperature=self.config.llm.temperature
+            )
+            return result['response']
     
     def _try_function_call(self, user_input: str) -> Optional[str]:
         """
@@ -485,12 +580,13 @@ Be concise and helpful. When asked to perform actions, use the available functio
                     self.logger.info("User requested exit")
                     break
                 
-                # Process command
-                response = self.process_command(user_input)
+                # Process command (with streaming enabled)
+                response = self.process_command(user_input, stream=True)
                 self.logger.info(f"🤖 Jane: {response}")
                 
-                # Speak response
-                self.speak(response)
+                # Note: Response may already be spoken via streaming
+                # Only speak if streaming didn't work or was disabled
+                # (This is handled in _process_streaming_response)
                 
             except KeyboardInterrupt:
                 self.logger.info("Exiting (KeyboardInterrupt)...")

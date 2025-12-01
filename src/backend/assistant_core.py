@@ -14,6 +14,11 @@ from src.backend.app_controller import AppController
 from src.backend.input_controller import InputController
 from src.backend.context_manager import ContextManager
 from src.backend.conversation_state import ConversationState
+from src.backend.web_search import search_web
+from src.backend.system_info import (
+    get_system_info, get_cpu_info, get_memory_info, 
+    get_disk_usage, get_network_info
+)
 from src.config import load_config, get_config, AssistantConfig
 from src.utils.logger import get_logger, log_performance, log_timing
 from src.utils.error_handler import handle_error
@@ -305,6 +310,90 @@ Be concise and helpful. When asked to perform actions, use the available functio
                     }
                 },
                 "required": ["text"]
+            }
+        )
+        
+        # Web search
+        self.function_handler.register(
+            "search_web",
+            search_web,
+            "Search the web for information using DuckDuckGo",
+            {
+                "type": "object",
+                "properties": {
+                    "query": {
+                        "type": "string",
+                        "description": "Search query string"
+                    },
+                    "max_results": {
+                        "type": "integer",
+                        "description": "Maximum number of results to return (default: 5)",
+                        "default": 5
+                    }
+                },
+                "required": ["query"]
+            }
+        )
+        
+        # System information
+        self.function_handler.register(
+            "get_system_info",
+            get_system_info,
+            "Get system information (OS, platform, processor, Python version)",
+            {
+                "type": "object",
+                "properties": {},
+                "required": []
+            }
+        )
+        
+        self.function_handler.register(
+            "get_cpu_info",
+            get_cpu_info,
+            "Get CPU information and current usage",
+            {
+                "type": "object",
+                "properties": {},
+                "required": []
+            }
+        )
+        
+        self.function_handler.register(
+            "get_memory_info",
+            get_memory_info,
+            "Get memory (RAM) information and usage",
+            {
+                "type": "object",
+                "properties": {},
+                "required": []
+            }
+        )
+        
+        self.function_handler.register(
+            "get_disk_usage",
+            get_disk_usage,
+            "Get disk usage information for a path (default: root/C: drive)",
+            {
+                "type": "object",
+                "properties": {
+                    "path": {
+                        "type": "string",
+                        "description": "Path to check disk usage (default: '/' or 'C:\\')",
+                        "default": "/"
+                    }
+                },
+                "required": []
+            }
+        )
+        
+        self.function_handler.register(
+            "get_network_info",
+            get_network_info,
+            "Get network interface information",
+            {
+                "type": "object",
+                "properties": {},
+                "required": []
             }
         )
         

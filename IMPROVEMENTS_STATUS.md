@@ -59,7 +59,7 @@
 - **Started:** 2025-11-30
 - **Completed:** 2025-11-30
 - **Tests:** ✅ All Pass
-- **Commit:** (latest commit hash)
+- **Commit:** a287515 - "feat: Add context window management with smart pruning"
 - **Notes:** Context manager with pruning and summarization implemented.
 
 ### Step 2.2: Streaming Responses

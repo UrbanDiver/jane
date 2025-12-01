@@ -19,6 +19,8 @@ from src.backend.system_info import (
     get_system_info, get_cpu_info, get_memory_info, 
     get_disk_usage, get_network_info
 )
+from src.plugins.plugin_manager import PluginManager
+from src.plugins.plugin_base import PluginHook
 from src.config import load_config, get_config, AssistantConfig
 from src.utils.logger import get_logger, log_performance, log_timing
 from src.utils.error_handler import handle_error
@@ -398,6 +400,28 @@ Be concise and helpful. When asked to perform actions, use the available functio
         )
         
         self.logger.info(f"✅ Registered {len(self.function_handler.list_functions())} functions")
+        
+        # Initialize plugin system
+        self.logger.info("6. Initializing plugin system...")
+        self.plugin_manager = PluginManager()
+        
+        # Load plugins
+        loaded_plugins = self.plugin_manager.load_all_plugins(self)
+        self.logger.info(f"✅ Loaded {len(loaded_plugins)} plugins")
+        
+        # Register plugin functions
+        plugin_functions = self.plugin_manager.get_all_functions()
+        for func_name, func_def in plugin_functions.items():
+            self.function_handler.register(
+                func_name,
+                func_def["function"],
+                func_def["description"],
+                func_def["parameters"]
+            )
+            self.logger.debug(f"Registered plugin function: {func_name} (from {func_def.get('plugin', 'unknown')})")
+        
+        if plugin_functions:
+            self.logger.info(f"✅ Registered {len(plugin_functions)} plugin functions")
     
     def listen(self, duration: float = 5.0) -> str:
         """
@@ -448,10 +472,14 @@ Be concise and helpful. When asked to perform actions, use the available functio
             Assistant's response text
         """
         # Add user message to conversation history
-        self.conversation_history.append({
+        user_message = {
             "role": "user",
             "content": user_input
-        })
+        }
+        self.conversation_history.append(user_message)
+        
+        # Execute ON_MESSAGE hook
+        self.plugin_manager.execute_hook(PluginHook.ON_MESSAGE, user_message)
         
         # Get LLM response
         self.logger.info("🤔 Thinking...")
@@ -483,6 +511,16 @@ Be concise and helpful. When asked to perform actions, use the available functio
         while iteration < max_iterations:
             iteration += 1
             
+            # Execute BEFORE_LLM hook (plugins can modify messages)
+            modified_history = self.plugin_manager.execute_hook(PluginHook.BEFORE_LLM, managed_history)
+            if modified_history and len(modified_history) > 0:
+                # Use the last result if it's a list, otherwise use original
+                if isinstance(modified_history[-1], list):
+                    managed_history = modified_history[-1]
+                elif isinstance(modified_history[-1], dict):
+                    # Single message modification - replace last message
+                    managed_history = managed_history[:-1] + [modified_history[-1]]
+            
             # Get LLM response (streaming or non-streaming)
             if stream and iteration == 1 and not tools:  # Only stream if no function calling
                 response = self._process_streaming_response(
@@ -492,6 +530,8 @@ Be concise and helpful. When asked to perform actions, use the available functio
                 )
                 # Streaming doesn't support function calling, so we're done
                 final_response = response
+                # Execute AFTER_LLM hook
+                self.plugin_manager.execute_hook(PluginHook.AFTER_LLM, response)
                 break
             else:
                 result = self.llm.chat(
@@ -502,6 +542,9 @@ Be concise and helpful. When asked to perform actions, use the available functio
                 )
                 response = result.get('response', '')
                 function_calls = result.get('function_calls', [])
+                
+                # Execute AFTER_LLM hook
+                self.plugin_manager.execute_hook(PluginHook.AFTER_LLM, result)
             
             # Check for function calls
             if use_functions and result and 'function_calls' in result and result['function_calls']:
@@ -518,8 +561,14 @@ Be concise and helpful. When asked to perform actions, use the available functio
                     
                     self.logger.info(f"🔧 Calling function: {func_name} with args: {func_args}")
                     
+                    # Execute BEFORE_FUNCTION_CALL hook
+                    self.plugin_manager.execute_hook(PluginHook.BEFORE_FUNCTION_CALL, func_name, func_args)
+                    
                     # Execute function
                     func_result = self.function_handler.execute(func_name, func_args)
+                    
+                    # Execute AFTER_FUNCTION_CALL hook
+                    self.plugin_manager.execute_hook(PluginHook.AFTER_FUNCTION_CALL, func_name, func_args, func_result)
                     
                     if func_result['success']:
                         result_str = str(func_result['result'])

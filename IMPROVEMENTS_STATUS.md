@@ -144,7 +144,7 @@
 - **Started:** 2025-11-30
 - **Completed:** 2025-11-30
 - **Tests:** ✅ All Pass
-- **Commit:** [see git log -2 for commit hash]
+- **Commit:** e7abb66 - "refactor: Implement dependency injection pattern"
 - **Notes:** Dependency injection implemented. Components can be injected, defaults work, factory functions available.
 
 ---
@@ -245,7 +245,7 @@ None at this time.
 **Phase 4:**
 - `2f3cd9a` - Abstract Base Classes
 - `aec083c` - Plugin System
-- `[see git log]` - Dependency Injection
+- `e7abb66` - Dependency Injection
 
 ---
 

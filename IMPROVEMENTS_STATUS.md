@@ -167,7 +167,7 @@
 - **Started:** 2025-11-30
 - **Completed:** 2025-11-30
 - **Tests:** ✅ All Pass
-- **Commit:** [see git log for 'feat: Add REST API and WebSocket support']
+- **Commit:** [see git log -7 for commit hash]
 - **Notes:** REST API with FastAPI, WebSocket support, authentication, API documentation, example client.
 
 ---

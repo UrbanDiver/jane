@@ -67,7 +67,7 @@
 - **Started:** 2025-11-30
 - **Completed:** 2025-11-30
 - **Tests:** ✅ All Pass
-- **Commit:** (latest commit hash)
+- **Commit:** 9147aaa - "feat: Implement streaming responses for reduced latency"
 - **Notes:** Streaming with sentence detection and early TTS implemented.
 
 ### Step 2.3: Memory Management

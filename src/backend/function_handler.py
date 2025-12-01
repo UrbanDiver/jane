@@ -119,6 +119,25 @@ class FunctionHandler:
             for name, info in self.functions.items()
         ]
     
+    def format_functions_for_llm(self) -> List[Dict]:
+        """
+        Format functions for LLM function calling (OpenAI/llama.cpp format).
+        
+        Returns:
+            List of function definitions in LLM format
+        """
+        tools = []
+        for name, info in self.functions.items():
+            tools.append({
+                "type": "function",
+                "function": {
+                    "name": name,
+                    "description": info["description"],
+                    "parameters": info["parameters"]
+                }
+            })
+        return tools
+    
     def execute(
         self,
         function_name: str,

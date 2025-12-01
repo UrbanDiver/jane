@@ -186,7 +186,8 @@ class LLMEngine:
         max_tokens: int = 256,
         temperature: float = 0.7,
         top_p: float = 0.9,
-        stop: Optional[List[str]] = None
+        stop: Optional[List[str]] = None,
+        tools: Optional[List[Dict]] = None
     ) -> Dict:
         """
         Chat completion with message history.
@@ -198,6 +199,7 @@ class LLMEngine:
             temperature: Sampling temperature
             top_p: Nucleus sampling parameter
             stop: List of stop sequences
+            tools: Optional list of function definitions for function calling
             
         Returns:
             Dictionary with chat results:
@@ -205,32 +207,60 @@ class LLMEngine:
                 'response': str,                # Assistant's response
                 'time': float,                  # Generation time
                 'tokens': int,                  # Tokens generated
-                'tokens_per_second': float      # Generation speed
+                'tokens_per_second': float,     # Generation speed
+                'function_calls': List[Dict]    # List of function calls if any
             }
         """
-        self.logger.debug(f"Chat completion (messages={len(messages)}, max_tokens={max_tokens})")
+        self.logger.debug(f"Chat completion (messages={len(messages)}, max_tokens={max_tokens}, tools={len(tools) if tools else 0})")
         
         try:
-            response = self.llm.create_chat_completion(
-                messages=messages,
-                max_tokens=max_tokens,
-                temperature=temperature,
-                top_p=top_p,
-                stop=stop
-            )
-            
-            content = response['choices'][0]['message']['content']
-            tokens = response['usage']['completion_tokens']
-            
-            result = {
-                'response': content.strip(),
-                'time': 0,  # Will be set by decorator
-                'tokens': tokens,
-                'tokens_per_second': 0  # Will be calculated by decorator
+            # Prepare chat completion kwargs
+            completion_kwargs = {
+                "messages": messages,
+                "max_tokens": max_tokens,
+                "temperature": temperature,
+                "top_p": top_p
             }
             
-            self.logger.info(f"Chat response: {tokens} tokens")
-            self.logger.debug(f"Response: '{content[:100]}{'...' if len(content) > 100 else ''}'")
+            if stop:
+                completion_kwargs["stop"] = stop
+            
+            if tools:
+                completion_kwargs["tools"] = tools
+            
+            response = self.llm.create_chat_completion(**completion_kwargs)
+            
+            message = response['choices'][0]['message']
+            content = message.get('content', '')
+            tokens = response['usage']['completion_tokens']
+            
+            # Check for function calls
+            function_calls = []
+            if 'tool_calls' in message:
+                for tool_call in message['tool_calls']:
+                    function_calls.append({
+                        'id': tool_call.get('id'),
+                        'function': {
+                            'name': tool_call['function']['name'],
+                            'arguments': tool_call['function'].get('arguments', '{}')
+                        }
+                    })
+            
+            result = {
+                'response': content.strip() if content else '',
+                'time': 0,  # Will be set by decorator
+                'tokens': tokens,
+                'tokens_per_second': 0,  # Will be calculated by decorator
+                'function_calls': function_calls
+            }
+            
+            if function_calls:
+                self.logger.info(f"Chat response with {len(function_calls)} function call(s): {tokens} tokens")
+                for fc in function_calls:
+                    self.logger.debug(f"  Function call: {fc['function']['name']}")
+            else:
+                self.logger.info(f"Chat response: {tokens} tokens")
+                self.logger.debug(f"Response: '{content[:100]}{'...' if len(content) > 100 else ''}'")
             
             return result
             

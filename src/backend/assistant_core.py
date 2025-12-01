@@ -361,20 +361,6 @@ Be concise and helpful. When asked to perform actions, use the available functio
         # Get LLM response
         self.logger.info("🤔 Thinking...")
         
-        # Check if we should use function calling
-        if use_functions:
-            # Try to detect if a function call is needed
-            function_result = self._try_function_call(user_input)
-            if function_result:
-                # Function was called, get LLM response with the result
-                # Mark as important so it's retained during pruning
-                function_message = {
-                    "role": "system",
-                    "content": f"Function result: {function_result}",
-                    "important": True
-                }
-                self.conversation_history.append(function_message)
-        
         # Manage context before getting LLM response
         managed_history = self.context_manager.manage_context(
             self.conversation_history,
@@ -386,32 +372,105 @@ Be concise and helpful. When asked to perform actions, use the available functio
             self.logger.debug(f"Context managed: {len(self.conversation_history)} -> {len(managed_history)} messages")
             self.conversation_history = managed_history
         
-        # Get LLM response (streaming or non-streaming)
-        if stream:
-            response = self._process_streaming_response(
-                managed_history,
-                max_tokens or self.config.llm.max_tokens
-            )
-        else:
-            result = self.llm.chat(
-                managed_history,
-                max_tokens=max_tokens or self.config.llm.max_tokens,
-                temperature=self.config.llm.temperature
-            )
-            response = result['response']
+        # Prepare function calling if enabled
+        tools = None
+        if use_functions:
+            tools = self.function_handler.format_functions_for_llm()
+            if tools:
+                self.logger.debug(f"Function calling enabled with {len(tools)} functions")
+        
+        # Get LLM response with function calling support
+        max_iterations = 5  # Limit function call chains
+        iteration = 0
+        final_response = None
+        result = None
+        
+        while iteration < max_iterations:
+            iteration += 1
+            
+            # Get LLM response (streaming or non-streaming)
+            if stream and iteration == 1 and not tools:  # Only stream if no function calling
+                response = self._process_streaming_response(
+                    managed_history,
+                    max_tokens or self.config.llm.max_tokens,
+                    tools=None  # No tools for streaming
+                )
+                # Streaming doesn't support function calling, so we're done
+                final_response = response
+                break
+            else:
+                result = self.llm.chat(
+                    managed_history,
+                    max_tokens=max_tokens or self.config.llm.max_tokens,
+                    temperature=self.config.llm.temperature,
+                    tools=tools if iteration == 1 else None  # Only provide tools on first call
+                )
+                response = result.get('response', '')
+                function_calls = result.get('function_calls', [])
+            
+            # Check for function calls
+            if use_functions and result and 'function_calls' in result and result['function_calls']:
+                # Execute function calls
+                for fc in result['function_calls']:
+                    func_name = fc['function']['name']
+                    func_args_str = fc['function'].get('arguments', '{}')
+                    
+                    try:
+                        func_args = json.loads(func_args_str) if isinstance(func_args_str, str) else func_args_str
+                    except json.JSONDecodeError:
+                        self.logger.warning(f"Invalid JSON in function arguments: {func_args_str}")
+                        func_args = {}
+                    
+                    self.logger.info(f"🔧 Calling function: {func_name} with args: {func_args}")
+                    
+                    # Execute function
+                    func_result = self.function_handler.execute(func_name, func_args)
+                    
+                    if func_result['success']:
+                        result_str = str(func_result['result'])
+                        # Add function result to conversation
+                        managed_history.append({
+                            "role": "tool",
+                            "content": result_str,
+                            "tool_call_id": fc.get('id'),
+                            "name": func_name
+                        })
+                        self.logger.debug(f"Function result: {result_str[:100]}...")
+                    else:
+                        error_msg = func_result.get('error', 'Unknown error')
+                        managed_history.append({
+                            "role": "tool",
+                            "content": f"Error: {error_msg}",
+                            "tool_call_id": fc.get('id'),
+                            "name": func_name
+                        })
+                        self.logger.warning(f"Function {func_name} failed: {error_msg}")
+                
+                # Continue loop to get LLM response with function results
+                continue
+            else:
+                # No function calls, we're done
+                final_response = response
+                break
+        
+        if final_response is None:
+            # Max iterations reached, use last response
+            final_response = response
+            self.logger.warning(f"Function call chain reached max iterations ({max_iterations})")
         
         # Add assistant response to history
         self.conversation_history.append({
             "role": "assistant",
-            "content": response
+            "content": final_response
         })
         
-        return response
+        return final_response
     
     def _process_streaming_response(
         self,
         messages: List[Dict[str, str]],
-        max_tokens: int
+        max_tokens: int,
+        tools: Optional[List[Dict]] = None
     ) -> str:
         """
         Process streaming LLM response with early TTS synthesis.
@@ -431,6 +490,12 @@ Be concise and helpful. When asked to perform actions, use the available functio
         
         try:
             # Stream response from LLM
+            # Note: Function calling with streaming is complex, so we disable it for now
+            # If tools are provided, we'll fall back to non-streaming
+            if tools:
+                self.logger.debug("Function calling enabled, disabling streaming")
+                raise ValueError("Streaming not supported with function calling")
+            
             stream = self.llm.stream_chat(
                 messages,
                 max_tokens=max_tokens,
@@ -499,7 +564,10 @@ Be concise and helpful. When asked to perform actions, use the available functio
     
     def _try_function_call(self, user_input: str) -> Optional[str]:
         """
-        Try to detect and execute a function call based on user input.
+        DEPRECATED: Try to detect and execute a function call based on user input.
+        
+        This method is kept for backward compatibility but is no longer used.
+        Function calling is now handled by the LLM directly.
         
         Args:
             user_input: User's input text
@@ -507,25 +575,8 @@ Be concise and helpful. When asked to perform actions, use the available functio
         Returns:
             Function result string if function was called, None otherwise
         """
-        user_lower = user_input.lower()
-        
-        # Time-related queries
-        if any(phrase in user_lower for phrase in ["what time", "what's the time", "time is it", "current time"]):
-            result = self.function_handler.execute("get_current_time")
-            if result["success"]:
-                return f"The current time is {result['result']}"
-        
-        # Date-related queries
-        if any(phrase in user_lower for phrase in ["what date", "what's the date", "date is it", "current date", "today's date"]):
-            result = self.function_handler.execute("get_current_date")
-            if result["success"]:
-                return f"Today's date is {result['result']}"
-        
-        # Date and time queries (check this before individual time/date checks)
-        if any(phrase in user_lower for phrase in ["what date and time", "date and time", "current datetime", "date and time is it"]):
-            result = self.function_handler.execute("get_current_datetime")
-            if result["success"]:
-                return f"The current date and time is {result['result']}"
+        # This method is deprecated - function calling is now handled by LLM
+        return None
         
         # File listing queries
         if any(phrase in user_lower for phrase in ["list files", "show files", "what files", "files in"]):

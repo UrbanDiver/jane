@@ -21,6 +21,7 @@ from src.backend.system_info import (
 )
 from src.plugins.plugin_manager import PluginManager
 from src.plugins.plugin_base import PluginHook
+from src.backend.wake_word_detector import WakeWordDetector
 from src.config import load_config, get_config, AssistantConfig
 from src.utils.logger import get_logger, log_performance, log_timing
 from src.utils.error_handler import handle_error
@@ -31,6 +32,7 @@ import json
 import time
 import os
 import threading
+from typing import Optional
 
 
 class AssistantCore:
@@ -825,56 +827,112 @@ Be concise and helpful. When asked to perform actions, use the available functio
         
         return None
     
-    def run_voice_loop(self):
+    def run_voice_loop(self, use_wake_word: Optional[bool] = None):
         """
         Main voice interaction loop.
         
         Continuously listens for voice input, processes it, and responds.
+        
+        Args:
+            use_wake_word: Override wake word setting (None = use config)
         """
         self.logger.info("=" * 60)
         self.logger.info("AI Assistant Ready!")
         self.logger.info("=" * 60)
-        self.logger.info("Voice interaction loop starting...")
-        self.logger.info("Say 'goodbye' or 'exit' to stop.")
         
-        self.speak("Hello! I'm Jane, your AI assistant. I'm ready to help you.")
+        # Determine if wake word should be used
+        use_wake_word = use_wake_word if use_wake_word is not None else (
+            self.wake_word_detector is not None and self.config.wake_word.enabled
+        )
         
-        while True:
+        if use_wake_word:
+            self.logger.info("Wake word mode enabled")
+            self.logger.info(f"Wake words: {self.config.wake_word.wake_words}")
+            self.logger.info("Say a wake word to activate, or 'goodbye'/'exit' to stop.")
+            self.speak("Hello! I'm Jane. Say my name to activate me.")
+            
+            # Start continuous wake word listening
+            def on_wake_word_detected(command: str):
+                """Handle wake word detection."""
+                self.logger.info(f"🔔 Wake word detected! Command: '{command}'")
+                
+                if not command.strip():
+                    # Just wake word, no command - prompt for input
+                    self.speak("Yes? How can I help you?")
+                    # Listen for actual command
+                    user_input = self.listen(duration=5)
+                    if user_input.strip():
+                        self._process_user_input(user_input)
+                else:
+                    # Command included with wake word
+                    self._process_user_input(command)
+            
+            self.wake_word_detector.start_continuous_listening(
+                callback=on_wake_word_detected,
+                check_interval=self.config.wake_word.check_interval
+            )
+            
+            # Keep running until interrupted
             try:
-                # Listen for voice input
-                user_input = self.listen(duration=5)
-                
-                if not user_input.strip():
-                    continue
-                
-                self.logger.info(f"👤 You: {user_input}")
-                
-                # Check for exit commands
-                if any(word in user_input.lower() for word in ["goodbye", "exit", "quit", "stop"]):
-                    self.speak("Goodbye! Have a great day!")
-                    self.logger.info("User requested exit")
-                    break
-                
-                # Process command (with streaming enabled)
-                response = self.process_command(user_input, stream=True)
-                self.logger.info(f"🤖 Jane: {response}")
-                
-                # Note: Response may already be spoken via streaming
-                # Only speak if streaming didn't work or was disabled
-                # (This is handled in _process_streaming_response)
-                
-                # Periodic memory cleanup
-                if len(self.conversation_history) % 10 == 0:
-                    self.memory_manager.clear_gpu_cache()
-                    self.memory_manager.log_memory_usage("(periodic cleanup)")
-                
+                while True:
+                    time.sleep(1)
+                    # Check for exit (could be done via a command)
             except KeyboardInterrupt:
                 self.logger.info("Exiting (KeyboardInterrupt)...")
+                if self.wake_word_detector:
+                    self.wake_word_detector.stop_continuous_listening()
                 self.speak("Goodbye!")
-                break
-            except Exception as e:
-                error_info = handle_error(e, context={"user_input": user_input}, logger=self.logger)
-                self.logger.error(f"❌ Error in voice loop: {error_info['message']}", exc_info=True)
+        else:
+            # Standard mode (no wake word)
+            self.logger.info("Voice interaction loop starting...")
+            self.logger.info("Say 'goodbye' or 'exit' to stop.")
+            self.speak("Hello! I'm Jane, your AI assistant. I'm ready to help you.")
+            
+            while True:
+                try:
+                    # Listen for voice input
+                    user_input = self.listen(duration=5)
+                    
+                    if not user_input.strip():
+                        continue
+                    
+                    self._process_user_input(user_input)
+                    
+                except KeyboardInterrupt:
+                    self.logger.info("Exiting (KeyboardInterrupt)...")
+                    self.speak("Goodbye!")
+                    break
+                except Exception as e:
+                    error_info = handle_error(e, context={"user_input": user_input if 'user_input' in locals() else None}, logger=self.logger)
+                    self.logger.error(f"❌ Error in voice loop: {error_info['message']}", exc_info=True)
+    
+    def _process_user_input(self, user_input: str):
+        """
+        Process user input and generate response.
+        
+        Args:
+            user_input: User's input text
+        """
+        self.logger.info(f"👤 You: {user_input}")
+        
+        # Check for exit commands
+        if any(word in user_input.lower() for word in ["goodbye", "exit", "quit", "stop"]):
+            self.speak("Goodbye! Have a great day!")
+            self.logger.info("User requested exit")
+            return
+        
+        # Process command (with streaming enabled)
+        response = self.process_command(user_input, stream=True)
+        self.logger.info(f"🤖 Jane: {response}")
+        
+        # Note: Response may already be spoken via streaming
+        # Only speak if streaming didn't work or was disabled
+        # (This is handled in _process_streaming_response)
+        
+        # Periodic memory cleanup
+        if len(self.conversation_history) % 10 == 0:
+            self.memory_manager.clear_gpu_cache()
+            self.memory_manager.log_memory_usage("(periodic cleanup)")
                 
                 # Try to provide user feedback
                 try:

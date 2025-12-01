@@ -162,8 +162,8 @@ class AssistantConfig(BaseModel):
         default=20,
         description="Maximum number of messages to keep in conversation history"
     )
-    wake_word: Optional[str] = Field(
-        default=None,
-        description="Wake word for activation (None = disabled)"
+    wake_word: WakeWordConfig = Field(
+        default_factory=WakeWordConfig,
+        description="Wake word detection configuration"
     )
 

@@ -45,7 +45,17 @@ class AssistantCore:
         config: Optional[AssistantConfig] = None,
         llm_model_path: Optional[str] = None,
         stt_model_size: Optional[str] = None,
-        tts_model_name: Optional[str] = None
+        tts_model_name: Optional[str] = None,
+        # Dependency injection parameters
+        stt: Optional[StreamingSTT] = None,
+        tts: Optional[TTSEngine] = None,
+        llm: Optional[LLMEngine] = None,
+        file_ctrl: Optional[FileController] = None,
+        app_ctrl: Optional[AppController] = None,
+        input_ctrl: Optional[InputController] = None,
+        function_handler: Optional[FunctionHandler] = None,
+        context_manager: Optional[ContextManager] = None,
+        conversation_state: Optional[ConversationState] = None
     ):
         """
         Initialize the assistant core.
@@ -55,6 +65,17 @@ class AssistantCore:
             llm_model_path: Path to LLM GGUF model (required if config not provided)
             stt_model_size: Whisper model size
             tts_model_name: TTS model name
+            
+            # Dependency injection parameters (optional)
+            stt: STT engine instance (created if not provided)
+            tts: TTS engine instance (created if not provided)
+            llm: LLM engine instance (created if not provided)
+            file_ctrl: File controller instance (created if not provided)
+            app_ctrl: App controller instance (created if not provided)
+            input_ctrl: Input controller instance (created if not provided)
+            function_handler: Function handler instance (created if not provided)
+            context_manager: Context manager instance (created if not provided)
+            conversation_state: Conversation state instance (created if not provided)
         """
         # Load config if not provided
         if config is None:
@@ -74,26 +95,61 @@ class AssistantCore:
         self.logger.info("Initializing AI Assistant Core...")
         self.logger.info("=" * 60)
         
-        # Core engines
-        self.logger.info("1. Initializing STT engine...")
-        self.stt = StreamingSTT(config=config.stt)
+        # Core engines (dependency injection with defaults)
+        if stt is not None:
+            self.logger.info("1. Using injected STT engine...")
+            self.stt = stt
+        else:
+            self.logger.info("1. Initializing STT engine...")
+            self.stt = StreamingSTT(config=config.stt)
         
-        self.logger.info("2. Initializing TTS engine...")
-        self.tts = TTSEngine(config=config.tts)
+        if tts is not None:
+            self.logger.info("2. Using injected TTS engine...")
+            self.tts = tts
+        else:
+            self.logger.info("2. Initializing TTS engine...")
+            self.tts = TTSEngine(config=config.tts)
         
-        self.logger.info("3. Initializing LLM engine...")
-        self.llm = LLMEngine(config=config.llm)
+        if llm is not None:
+            self.logger.info("3. Using injected LLM engine...")
+            self.llm = llm
+        else:
+            self.logger.info("3. Initializing LLM engine...")
+            self.llm = LLMEngine(config=config.llm)
         
-        # Controllers
-        self.logger.info("4. Initializing controllers...")
-        self.file_ctrl = FileController(config=config.file_controller)
-        self.app_ctrl = AppController(config=config.app_controller)
-        self.input_ctrl = InputController(config=config.input_controller)
+        # Controllers (dependency injection with defaults)
+        if file_ctrl is not None:
+            self.logger.info("4a. Using injected file controller...")
+            self.file_ctrl = file_ctrl
+        else:
+            self.logger.info("4a. Initializing file controller...")
+            self.file_ctrl = FileController(config=config.file_controller)
         
-        # Function handler
-        self.logger.info("5. Setting up function handler...")
-        self.function_handler = FunctionHandler()
-        self._register_functions()
+        if app_ctrl is not None:
+            self.logger.info("4b. Using injected app controller...")
+            self.app_ctrl = app_ctrl
+        else:
+            self.logger.info("4b. Initializing app controller...")
+            self.app_ctrl = AppController(config=config.app_controller)
+        
+        if input_ctrl is not None:
+            self.logger.info("4c. Using injected input controller...")
+            self.input_ctrl = input_ctrl
+        else:
+            self.logger.info("4c. Initializing input controller...")
+            self.input_ctrl = InputController(config=config.input_controller)
+        
+        # Function handler (dependency injection with default)
+        if function_handler is not None:
+            self.logger.info("5. Using injected function handler...")
+            self.function_handler = function_handler
+        else:
+            self.logger.info("5. Setting up function handler...")
+            self.function_handler = FunctionHandler()
+        
+        # Register functions (only if we created the handler)
+        if function_handler is None:
+            self._register_functions()
         
         # Conversation history
         self.conversation_history: List[Dict[str, str]] = [
@@ -115,42 +171,52 @@ Be concise and helpful. When asked to perform actions, use the available functio
         # Store max conversation history from config
         self.max_conversation_history = config.max_conversation_history
         
-        # Conversation state for tracking topics and preferences
-        self.conversation_state = ConversationState()
-        self.conversation_state.start_session()
+        # Conversation state (dependency injection with default)
+        if conversation_state is not None:
+            self.logger.info("6a. Using injected conversation state...")
+            self.conversation_state = conversation_state
+        else:
+            self.logger.info("6a. Initializing conversation state...")
+            self.conversation_state = ConversationState()
+            self.conversation_state.start_session()
         
-        # Context manager for conversation history (initialized after LLM is ready)
-        # Create summarization callback using LLM
-        def summarize_messages(messages: List[Dict[str, str]]) -> str:
-            """Summarize conversation messages using LLM."""
-            try:
-                # Format messages for summarization
-                summary_prompt = "Summarize the following conversation in 2-3 sentences, focusing on key topics and decisions:\n\n"
-                for msg in messages:
-                    role = msg.get("role", "unknown")
-                    content = msg.get("content", "")[:200]  # Truncate long messages
-                    summary_prompt += f"{role}: {content}\n"
-                
-                summary_prompt += "\nSummary:"
-                
-                # Use LLM to generate summary
-                result = self.llm.generate(
-                    summary_prompt,
-                    max_tokens=100,
-                    temperature=0.3
-                )
-                
-                return result.get("text", "").strip()
-            except Exception as e:
-                self.logger.warning(f"Summarization failed: {e}")
-                return "Previous conversation context (summarization unavailable)"
-        
-        self.context_manager = ContextManager(
-            max_messages=config.max_conversation_history,
-            summarize_threshold=int(config.max_conversation_history * 1.5),  # Summarize at 1.5x threshold
-            summarize_callback=summarize_messages,
-            conversation_state=self.conversation_state
-        )
+        # Context manager (dependency injection with default)
+        if context_manager is not None:
+            self.logger.info("6b. Using injected context manager...")
+            self.context_manager = context_manager
+        else:
+            self.logger.info("6b. Initializing context manager...")
+            # Create summarization callback using LLM
+            def summarize_messages(messages: List[Dict[str, str]]) -> str:
+                """Summarize conversation messages using LLM."""
+                try:
+                    # Format messages for summarization
+                    summary_prompt = "Summarize the following conversation in 2-3 sentences, focusing on key topics and decisions:\n\n"
+                    for msg in messages:
+                        role = msg.get("role", "unknown")
+                        content = msg.get("content", "")[:200]  # Truncate long messages
+                        summary_prompt += f"{role}: {content}\n"
+                    
+                    summary_prompt += "\nSummary:"
+                    
+                    # Use LLM to generate summary
+                    result = self.llm.generate(
+                        summary_prompt,
+                        max_tokens=100,
+                        temperature=0.3
+                    )
+                    
+                    return result.get("text", "").strip()
+                except Exception as e:
+                    self.logger.warning(f"Summarization failed: {e}")
+                    return "Previous conversation context (summarization unavailable)"
+            
+            self.context_manager = ContextManager(
+                max_messages=config.max_conversation_history,
+                summarize_threshold=int(config.max_conversation_history * 1.5),  # Summarize at 1.5x threshold
+                summarize_callback=summarize_messages,
+                conversation_state=self.conversation_state
+            )
         
         # Memory manager for cleanup
         self.memory_manager = get_memory_manager()

@@ -9,6 +9,7 @@ import pyautogui
 import time
 from typing import Tuple, Optional, Dict
 import platform
+from src.config.config_schema import InputControllerConfig
 
 
 class InputController:
@@ -18,14 +19,28 @@ class InputController:
     Provides safe input control with failsafe mechanisms.
     """
     
-    def __init__(self, safe_mode: bool = True, pause: float = 0.1):
+    def __init__(
+        self,
+        config: Optional[InputControllerConfig] = None,
+        safe_mode: Optional[bool] = None,
+        pause: Optional[float] = None
+    ):
         """
         Initialize input controller.
         
         Args:
+            config: InputControllerConfig object (takes precedence over individual params)
             safe_mode: Enable safety features (failsafe, pauses)
             pause: Pause between actions in seconds
         """
+        # Use config if provided, otherwise use individual params or defaults
+        if config:
+            safe_mode = config.safe_mode
+            pause = config.pause
+        else:
+            safe_mode = safe_mode if safe_mode is not None else True
+            pause = pause if pause is not None else 0.1
+        
         self.safe_mode = safe_mode
         
         # Configure pyautogui

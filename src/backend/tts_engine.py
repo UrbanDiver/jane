@@ -13,6 +13,7 @@ from pathlib import Path
 from typing import Optional, Dict, List
 import tempfile
 import os
+from src.config.config_schema import TTSConfig
 
 
 class TTSEngine:
@@ -24,16 +25,25 @@ class TTSEngine:
     
     def __init__(
         self,
-        model_name: str = "tts_models/en/ljspeech/tacotron2-DDC",
+        config: Optional[TTSConfig] = None,
+        model_name: Optional[str] = None,
         device: Optional[str] = None
     ):
         """
         Initialize the TTS engine.
         
         Args:
+            config: TTSConfig object (takes precedence over individual params)
             model_name: TTS model name (see TTS.list_models() for options)
             device: Device to use ("cuda" or "cpu"). Auto-detects if None.
         """
+        # Use config if provided, otherwise use individual params or defaults
+        if config:
+            model_name = config.model_name
+            device = config.device
+        else:
+            model_name = model_name or "tts_models/en/ljspeech/tacotron2-DDC"
+        
         if device is None:
             device = "cuda" if torch.cuda.is_available() else "cpu"
         

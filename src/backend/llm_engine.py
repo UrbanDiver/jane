@@ -9,6 +9,7 @@ import time
 from pathlib import Path
 from typing import Dict, List, Optional
 import json
+from src.config.config_schema import LLMConfig
 
 
 class LLMEngine:
@@ -20,22 +21,40 @@ class LLMEngine:
     
     def __init__(
         self,
-        model_path: str,
-        n_gpu_layers: int = -1,
-        n_ctx: int = 4096,
-        n_batch: int = 512,
-        verbose: bool = False
+        config: Optional[LLMConfig] = None,
+        model_path: Optional[str] = None,
+        n_gpu_layers: Optional[int] = None,
+        n_ctx: Optional[int] = None,
+        n_batch: Optional[int] = None,
+        verbose: Optional[bool] = None
     ):
         """
         Initialize the LLM engine.
         
         Args:
+            config: LLMConfig object (takes precedence over individual params)
             model_path: Path to GGUF model file
             n_gpu_layers: Number of layers to offload to GPU (-1 = all layers)
             n_ctx: Context window size
             n_batch: Batch size for processing
             verbose: Enable verbose logging
         """
+        # Use config if provided, otherwise use individual params or defaults
+        if config:
+            model_path = config.model_path
+            n_gpu_layers = config.n_gpu_layers
+            n_ctx = config.n_ctx
+            n_batch = config.n_batch
+            verbose = config.verbose
+        else:
+            # Require model_path if no config
+            if model_path is None:
+                raise ValueError("model_path is required if config is not provided")
+            n_gpu_layers = n_gpu_layers if n_gpu_layers is not None else -1
+            n_ctx = n_ctx if n_ctx is not None else 4096
+            n_batch = n_batch if n_batch is not None else 512
+            verbose = verbose if verbose is not None else False
+        
         if not Path(model_path).exists():
             raise FileNotFoundError(f"Model file not found: {model_path}")
         

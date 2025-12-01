@@ -10,6 +10,7 @@ import shutil
 from pathlib import Path
 from typing import List, Optional, Dict
 import json
+from src.config.config_schema import FileControllerConfig
 
 
 class FileController:
@@ -19,24 +20,35 @@ class FileController:
     Provides safe file operations with directory restrictions.
     """
     
-    def __init__(self, safe_mode: bool = True):
+    def __init__(
+        self,
+        config: Optional[FileControllerConfig] = None,
+        safe_mode: Optional[bool] = None
+    ):
         """
         Initialize file controller.
         
         Args:
+            config: FileControllerConfig object (takes precedence over individual params)
             safe_mode: Enable safety checks (restrict to user directories)
         """
-        self.safe_mode = safe_mode
+        # Use config if provided, otherwise use individual params or defaults
+        if config:
+            safe_mode = config.safe_mode
+            allowed_dirs = [Path(d).expanduser() for d in config.allowed_directories]
+        else:
+            safe_mode = safe_mode if safe_mode is not None else True
+            allowed_dirs = [
+                Path.home() / "Documents",
+                Path.home() / "Desktop",
+                Path.home() / "Downloads",
+                Path.home() / "Pictures",
+                Path.home() / "Videos",
+                Path.home() / "Music"
+            ]
         
-        # Allowed directories in safe mode
-        self.allowed_dirs = [
-            Path.home() / "Documents",
-            Path.home() / "Desktop",
-            Path.home() / "Downloads",
-            Path.home() / "Pictures",
-            Path.home() / "Videos",
-            Path.home() / "Music"
-        ]
+        self.safe_mode = safe_mode
+        self.allowed_dirs = allowed_dirs
         
         print(f"FileController initialized (safe_mode={safe_mode})")
         if safe_mode:

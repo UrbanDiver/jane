@@ -9,6 +9,7 @@ from faster_whisper import WhisperModel
 import time
 from pathlib import Path
 from typing import Dict, Optional
+from src.config.config_schema import STTConfig
 
 
 class STTEngine:
@@ -21,20 +22,35 @@ class STTEngine:
     
     def __init__(
         self,
-        model_size: str = "large-v3",
-        device: str = "cuda",
-        compute_type: str = "float16",
-        num_workers: int = 4
+        config: Optional[STTConfig] = None,
+        model_size: Optional[str] = None,
+        device: Optional[str] = None,
+        compute_type: Optional[str] = None,
+        num_workers: Optional[int] = None
     ):
         """
         Initialize the STT engine.
         
         Args:
+            config: STTConfig object (takes precedence over individual params)
             model_size: Whisper model size (tiny, base, small, medium, large-v2, large-v3)
             device: Device to use ("cuda" or "cpu")
             compute_type: Computation type ("float16", "int8", "int8_float16")
             num_workers: Number of workers for processing
         """
+        # Use config if provided, otherwise use individual params or defaults
+        if config:
+            model_size = config.model_size
+            device = config.device
+            compute_type = config.compute_type
+            num_workers = config.num_workers
+        else:
+            # Use provided params or defaults
+            model_size = model_size or "large-v3"
+            device = device or "cuda"
+            compute_type = compute_type or "float16"
+            num_workers = num_workers or 4
+        
         print(f"Loading Whisper {model_size} on {device}...")
         print(f"  Compute type: {compute_type}")
         print(f"  Workers: {num_workers}")

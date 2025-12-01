@@ -12,6 +12,7 @@ from src.backend.function_handler import FunctionHandler
 from src.backend.file_controller import FileController
 from src.backend.app_controller import AppController
 from src.backend.input_controller import InputController
+from src.config import load_config, get_config, AssistantConfig
 from typing import Dict, List, Optional
 import json
 import time
@@ -27,37 +28,52 @@ class AssistantCore:
     
     def __init__(
         self,
-        llm_model_path: str,
-        stt_model_size: str = "medium",
-        tts_model_name: str = "tts_models/en/ljspeech/tacotron2-DDC"
+        config: Optional[AssistantConfig] = None,
+        llm_model_path: Optional[str] = None,
+        stt_model_size: Optional[str] = None,
+        tts_model_name: Optional[str] = None
     ):
         """
         Initialize the assistant core.
         
         Args:
-            llm_model_path: Path to LLM GGUF model
+            config: AssistantConfig object (takes precedence over individual params)
+            llm_model_path: Path to LLM GGUF model (required if config not provided)
             stt_model_size: Whisper model size
             tts_model_name: TTS model name
         """
+        # Load config if not provided
+        if config is None:
+            config = get_config()
+            # Override with individual params if provided (for backward compatibility)
+            if llm_model_path:
+                config.llm.model_path = llm_model_path
+            if stt_model_size:
+                config.stt.model_size = stt_model_size
+            if tts_model_name:
+                config.tts.model_name = tts_model_name
+        
+        self.config = config
+        
         print("=" * 60)
         print("Initializing AI Assistant Core...")
         print("=" * 60)
         
         # Core engines
         print("\n1. Initializing STT engine...")
-        self.stt = StreamingSTT(model_size=stt_model_size)
+        self.stt = StreamingSTT(config=config.stt)
         
         print("\n2. Initializing TTS engine...")
-        self.tts = TTSEngine(model_name=tts_model_name)
+        self.tts = TTSEngine(config=config.tts)
         
         print("\n3. Initializing LLM engine...")
-        self.llm = LLMEngine(llm_model_path)
+        self.llm = LLMEngine(config=config.llm)
         
         # Controllers
         print("\n4. Initializing controllers...")
-        self.file_ctrl = FileController(safe_mode=True)
-        self.app_ctrl = AppController()
-        self.input_ctrl = InputController(safe_mode=True)
+        self.file_ctrl = FileController(config=config.file_controller)
+        self.app_ctrl = AppController(config=config.app_controller)
+        self.input_ctrl = InputController(config=config.input_controller)
         
         # Function handler
         print("\n5. Setting up function handler...")
@@ -80,6 +96,9 @@ Always confirm before taking potentially destructive actions.
 Be concise and helpful. When asked to perform actions, use the available functions."""
             }
         ]
+        
+        # Store max conversation history from config
+        self.max_conversation_history = config.max_conversation_history
         
         print("\n" + "=" * 60)
         print("✅ Assistant Core initialized successfully!")
@@ -305,10 +324,12 @@ Be concise and helpful. When asked to perform actions, use the available functio
                 })
         
         # Get LLM response
+        # Use max_conversation_history from config, but limit to reasonable size
+        context_size = min(self.max_conversation_history, 20)
         result = self.llm.chat(
-            self.conversation_history[-10:],  # Last 10 messages for context
-            max_tokens=max_tokens,
-            temperature=0.7
+            self.conversation_history[-context_size:],  # Last N messages for context
+            max_tokens=max_tokens or self.config.llm.max_tokens,
+            temperature=self.config.llm.temperature
         )
         
         response = result['response']

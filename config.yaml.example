@@ -1,0 +1,58 @@
+# Jane AI Assistant Configuration
+# Copy this file to config.yaml and customize as needed
+
+# Speech-to-Text Configuration
+stt:
+  model_size: "medium"  # tiny, base, small, medium, large-v2, large-v3
+  device: "cuda"        # cuda or cpu
+  compute_type: "float16"  # float16, int8, int8_float16
+  num_workers: 4
+  sample_rate: 16000
+
+# Text-to-Speech Configuration
+tts:
+  model_name: "tts_models/en/ljspeech/tacotron2-DDC"
+  device: null  # null = auto-detect (cuda if available, else cpu)
+
+# Language Model Configuration
+llm:
+  model_path: "models/Qwen2.5-7B-Instruct-Q4_K_M.gguf"
+  n_gpu_layers: -1  # -1 = all layers on GPU
+  n_ctx: 4096        # Context window size
+  n_batch: 512       # Batch size
+  verbose: false
+  temperature: 0.7   # Sampling temperature (0.0-1.0)
+  max_tokens: 512    # Maximum tokens to generate
+
+# File Controller Configuration
+file_controller:
+  safe_mode: true
+  allowed_directories:
+    - "~/Documents"
+    - "~/Desktop"
+    - "~/Downloads"
+    - "~/Pictures"
+    - "~/Videos"
+    - "~/Music"
+
+# App Controller Configuration
+app_controller:
+  common_apps:
+    calculator: "calc.exe"
+    notepad: "notepad.exe"
+    paint: "mspaint.exe"
+    cmd: "cmd.exe"
+    powershell: "powershell.exe"
+    explorer: "explorer.exe"
+    chrome: "chrome.exe"
+    firefox: "firefox.exe"
+
+# Input Controller Configuration
+input_controller:
+  safe_mode: true
+  pause: 0.1  # Pause between actions in seconds
+
+# Assistant Configuration
+max_conversation_history: 20
+wake_word: null  # Set to a word (e.g., "jane") to enable wake word detection
+

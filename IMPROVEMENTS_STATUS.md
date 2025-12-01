@@ -144,7 +144,7 @@
 - **Started:** 2025-11-30
 - **Completed:** 2025-11-30
 - **Tests:** ✅ All Pass
-- **Commit:** [commit hash will be added]
+- **Commit:** [see git log -2 for commit hash]
 - **Notes:** Dependency injection implemented. Components can be injected, defaults work, factory functions available.
 
 ---
@@ -245,7 +245,7 @@ None at this time.
 **Phase 4:**
 - `2f3cd9a` - Abstract Base Classes
 - `aec083c` - Plugin System
-- `[pending]` - Dependency Injection
+- `[see git log]` - Dependency Injection
 
 ---
 

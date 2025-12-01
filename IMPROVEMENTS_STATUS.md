@@ -136,7 +136,7 @@
 - **Started:** 2025-11-30
 - **Completed:** 2025-11-30
 - **Tests:** ✅ All Pass
-- **Commit:** ⏳ Not Committed (pending)
+- **Commit:** [commit hash will be added]
 - **Notes:** Plugin architecture implemented with discovery, loading, hooks, and example plugin.
 
 ### Step 4.3: Dependency Injection

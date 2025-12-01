@@ -13,6 +13,7 @@ from src.backend.file_controller import FileController
 from src.backend.app_controller import AppController
 from src.backend.input_controller import InputController
 from src.backend.context_manager import ContextManager
+from src.backend.conversation_state import ConversationState
 from src.config import load_config, get_config, AssistantConfig
 from src.utils.logger import get_logger, log_performance, log_timing
 from src.utils.error_handler import handle_error
@@ -107,6 +108,10 @@ Be concise and helpful. When asked to perform actions, use the available functio
         # Store max conversation history from config
         self.max_conversation_history = config.max_conversation_history
         
+        # Conversation state for tracking topics and preferences
+        self.conversation_state = ConversationState()
+        self.conversation_state.start_session()
+        
         # Context manager for conversation history (initialized after LLM is ready)
         # Create summarization callback using LLM
         def summarize_messages(messages: List[Dict[str, str]]) -> str:
@@ -136,7 +141,8 @@ Be concise and helpful. When asked to perform actions, use the available functio
         self.context_manager = ContextManager(
             max_messages=config.max_conversation_history,
             summarize_threshold=int(config.max_conversation_history * 1.5),  # Summarize at 1.5x threshold
-            summarize_callback=summarize_messages
+            summarize_callback=summarize_messages,
+            conversation_state=self.conversation_state
         )
         
         # Memory manager for cleanup
@@ -463,6 +469,10 @@ Be concise and helpful. When asked to perform actions, use the available functio
             "role": "assistant",
             "content": final_response
         })
+        
+        # Save conversation state periodically
+        if len(self.conversation_history) % 10 == 0:
+            self.conversation_state.save()
         
         return final_response
     

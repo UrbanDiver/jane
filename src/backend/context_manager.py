@@ -7,6 +7,7 @@ important message retention to prevent unbounded memory growth.
 
 from typing import List, Dict, Optional, Callable
 from src.utils.logger import get_logger
+from src.backend.conversation_state import ConversationState
 
 
 class ContextManager:
@@ -21,7 +22,8 @@ class ContextManager:
         self,
         max_messages: int = 20,
         summarize_threshold: int = 30,
-        summarize_callback: Optional[Callable] = None
+        summarize_callback: Optional[Callable] = None,
+        conversation_state: Optional[ConversationState] = None
     ):
         """
         Initialize context manager.
@@ -31,6 +33,7 @@ class ContextManager:
             summarize_threshold: Number of messages before summarization is triggered
             summarize_callback: Optional callback function for summarization.
                                Should accept (messages: List[Dict]) -> str
+            conversation_state: Optional ConversationState instance for tracking
         """
         self.max_messages = max_messages
         self.summarize_threshold = summarize_threshold
@@ -39,6 +42,9 @@ class ContextManager:
         
         # Track important message indices
         self.important_indices = set()
+        
+        # Conversation state for topic/preference tracking
+        self.conversation_state = conversation_state
         
         self.logger.debug(f"ContextManager initialized: max_messages={max_messages}, "
                          f"summarize_threshold={summarize_threshold}")
@@ -185,6 +191,14 @@ class ContextManager:
         Returns:
             Managed conversation history
         """
+        # Update conversation state with new messages
+        if self.conversation_state:
+            for msg in messages[-5:]:  # Process last 5 messages
+                role = msg.get("role", "")
+                content = msg.get("content", "")
+                if role and content:
+                    self.conversation_state.add_message(role, content)
+        
         if len(messages) <= self.max_messages:
             return messages
         

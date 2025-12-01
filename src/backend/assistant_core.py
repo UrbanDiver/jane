@@ -12,6 +12,7 @@ from src.backend.function_handler import FunctionHandler
 from src.backend.file_controller import FileController
 from src.backend.app_controller import AppController
 from src.backend.input_controller import InputController
+from src.backend.context_manager import ContextManager
 from src.config import load_config, get_config, AssistantConfig
 from src.utils.logger import get_logger, log_performance, log_timing
 from src.utils.error_handler import handle_error
@@ -102,6 +103,38 @@ Be concise and helpful. When asked to perform actions, use the available functio
         
         # Store max conversation history from config
         self.max_conversation_history = config.max_conversation_history
+        
+        # Context manager for conversation history (initialized after LLM is ready)
+        # Create summarization callback using LLM
+        def summarize_messages(messages: List[Dict[str, str]]) -> str:
+            """Summarize conversation messages using LLM."""
+            try:
+                # Format messages for summarization
+                summary_prompt = "Summarize the following conversation in 2-3 sentences, focusing on key topics and decisions:\n\n"
+                for msg in messages:
+                    role = msg.get("role", "unknown")
+                    content = msg.get("content", "")[:200]  # Truncate long messages
+                    summary_prompt += f"{role}: {content}\n"
+                
+                summary_prompt += "\nSummary:"
+                
+                # Use LLM to generate summary
+                result = self.llm.generate(
+                    summary_prompt,
+                    max_tokens=100,
+                    temperature=0.3
+                )
+                
+                return result.get("text", "").strip()
+            except Exception as e:
+                self.logger.warning(f"Summarization failed: {e}")
+                return "Previous conversation context (summarization unavailable)"
+        
+        self.context_manager = ContextManager(
+            max_messages=config.max_conversation_history,
+            summarize_threshold=int(config.max_conversation_history * 1.5),  # Summarize at 1.5x threshold
+            summarize_callback=summarize_messages
+        )
         
         self.logger.info("=" * 60)
         self.logger.info("✅ Assistant Core initialized successfully!")
@@ -317,26 +350,37 @@ Be concise and helpful. When asked to perform actions, use the available functio
         # Get LLM response
         self.logger.info("🤔 Thinking...")
         
-        # Check if we should use function calling
-        if use_functions:
-            # Try to detect if a function call is needed
-            function_result = self._try_function_call(user_input)
-            if function_result:
-                # Function was called, get LLM response with the result
-                function_message = f"Function result: {function_result}"
-                self.conversation_history.append({
-                    "role": "system",
-                    "content": function_message
-                })
+            # Check if we should use function calling
+            if use_functions:
+                # Try to detect if a function call is needed
+                function_result = self._try_function_call(user_input)
+                if function_result:
+                    # Function was called, get LLM response with the result
+                    # Mark as important so it's retained during pruning
+                    function_message = {
+                        "role": "system",
+                        "content": f"Function result: {function_result}",
+                        "important": True
+                    }
+                    self.conversation_history.append(function_message)
+        
+        # Manage context before getting LLM response
+        managed_history = self.context_manager.manage_context(
+            self.conversation_history,
+            add_summary=True
+        )
         
         # Get LLM response
-        # Use max_conversation_history from config, but limit to reasonable size
-        context_size = min(self.max_conversation_history, 20)
         result = self.llm.chat(
-            self.conversation_history[-context_size:],  # Last N messages for context
+            managed_history,  # Use managed context
             max_tokens=max_tokens or self.config.llm.max_tokens,
             temperature=self.config.llm.temperature
         )
+        
+        # Update conversation history (context manager may have modified it)
+        if managed_history != self.conversation_history:
+            self.logger.debug(f"Context managed: {len(self.conversation_history)} -> {len(managed_history)} messages")
+            self.conversation_history = managed_history
         
         response = result['response']
         

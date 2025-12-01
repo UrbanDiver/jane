@@ -304,6 +304,32 @@ class STTEngine(STTEngineInterface):
         """Get the number of cached models."""
         return len(_model_cache)
     
+    def listen_and_transcribe(self, duration: float = 5.0) -> Dict:
+        """
+        Listen for audio and transcribe in real-time.
+        
+        Note: This is a convenience method that uses StreamingSTT internally.
+        For better control, use StreamingSTT directly.
+        
+        Args:
+            duration: Recording duration in seconds
+            
+        Returns:
+            Dictionary with transcription results (same format as transcribe)
+        """
+        # Import here to avoid circular dependency
+        from src.backend.streaming_stt import StreamingSTT
+        
+        # Create a temporary StreamingSTT instance for this operation
+        streaming_stt = StreamingSTT(
+            config=self.config,
+            model_size=self.model_size,
+            device=self.device,
+            compute_type=self.compute_type
+        )
+        
+        return streaming_stt.listen_and_transcribe(duration=duration)
+    
     def get_model_info(self) -> Dict:
         """Get information about the loaded model."""
         return {

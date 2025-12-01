@@ -251,6 +251,25 @@ class TTSEngine(TTSEngineInterface):
             # Temp file automatically cleaned up by context manager
             return audio_bytes
     
+    def play(self, audio_path: str) -> None:
+        """
+        Play an audio file.
+        
+        Args:
+            audio_path: Path to audio file to play
+        """
+        import sounddevice as sd
+        import soundfile as sf
+        
+        try:
+            audio_data, sample_rate = sf.read(audio_path)
+            sd.play(audio_data, sample_rate)
+            sd.wait()
+            self.logger.debug(f"Played audio: {audio_path}")
+        except Exception as e:
+            self.logger.error(f"Error playing audio: {e}", exc_info=True)
+            raise
+    
     def get_model_info(self) -> Dict:
         """Get information about the loaded model."""
         info = {

@@ -159,7 +159,7 @@
 - **Started:** 2025-11-30
 - **Completed:** 2025-11-30
 - **Tests:** ✅ All Pass
-- **Commit:** [see git log -3 for commit hash]
+- **Commit:** cb9f2a4 - "feat: Add wake word detection for energy-efficient listening"
 - **Notes:** Keyword-based wake word detection implemented. Configurable wake words, command extraction, continuous listening mode.
 
 ### Step 5.2: API Layer (Optional)
@@ -248,7 +248,7 @@ None at this time.
 - `e7abb66` - Dependency Injection
 
 **Phase 5:**
-- `[see git log]` - Wake Word Detection
+- `cb9f2a4` - Wake Word Detection
 
 ---
 

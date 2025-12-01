@@ -136,7 +136,7 @@
 - **Started:** 2025-11-30
 - **Completed:** 2025-11-30
 - **Tests:** ✅ All Pass
-- **Commit:** [see git log -2 for commit hash]
+- **Commit:** aec083c - "feat: Add plugin system for extensibility"
 - **Notes:** Plugin architecture implemented with discovery, loading, hooks, and example plugin.
 
 ### Step 4.3: Dependency Injection
@@ -244,7 +244,7 @@ None at this time.
 
 **Phase 4:**
 - `2f3cd9a` - Abstract Base Classes
-- `[see git log]` - Plugin System
+- `aec083c` - Plugin System
 
 ---
 

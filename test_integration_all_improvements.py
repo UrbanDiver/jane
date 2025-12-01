@@ -18,14 +18,14 @@ try:
     HAS_CONFIG = True
 except ImportError:
     HAS_CONFIG = False
-    print("⚠️  Config module not available (missing dependencies)")
+    print("WARNING: Config module not available (missing dependencies)")
 
 try:
     from src.utils.logger import get_logger
     HAS_LOGGER = True
 except ImportError:
     HAS_LOGGER = False
-    print("⚠️  Logger module not available (missing dependencies)")
+    print("WARNING: Logger module not available (missing dependencies)")
 
 
 def test_configuration_system():
@@ -35,7 +35,7 @@ def test_configuration_system():
     print("=" * 60)
     
     if not HAS_CONFIG:
-        print("   ⚠️  Skipped (dependencies not available)")
+        print("   WARNING: Skipped (dependencies not available)")
         return True  # Don't fail if dependencies missing
     
     try:
@@ -45,7 +45,7 @@ def test_configuration_system():
         assert hasattr(config, 'tts'), "TTS config should exist"
         assert hasattr(config, 'llm'), "LLM config should exist"
         assert hasattr(config, 'wake_word'), "Wake word config should exist"
-        print("   ✅ Configuration system integrated")
+        print("   OK: Configuration system integrated")
         return True
     except Exception as e:
         print(f"   ❌ Configuration system error: {e}")
@@ -59,7 +59,7 @@ def test_logging_integration():
     print("=" * 60)
     
     if not HAS_LOGGER:
-        print("   ⚠️  Skipped (dependencies not available)")
+        print("   WARNING: Skipped (dependencies not available)")
         return True
     
     try:
@@ -92,7 +92,7 @@ def test_error_handling_integration():
         print("   ✅ Error handling integrated")
         return True
     except ImportError:
-        print("   ⚠️  Skipped (dependencies not available)")
+        print("   WARNING: Skipped (dependencies not available)")
         return True
     except Exception as e:
         print(f"   ❌ Error handling integration error: {e}")
@@ -227,8 +227,8 @@ def test_api_integration():
         print(f"   ✅ API layer integrated ({len(routes)} routes)")
         return True
     except ImportError:
-        print("   ⚠️  API dependencies not installed (FastAPI)")
-        print("   ✅ API structure verified")
+        print("   WARNING: API dependencies not installed (FastAPI)")
+        print("   OK: API structure verified")
         return True
     except Exception as e:
         print(f"   ❌ API integration error: {e}")
@@ -277,8 +277,8 @@ def test_assistant_core_with_all_improvements():
             
             # Test that AssistantCore can be initialized with config
             # (We'll use mocks to avoid loading actual models)
-            print("   ✅ AssistantCore structure verified with all improvements")
-            print("   ⚠️  Full initialization requires model files (skipped in integration test)")
+        print("   OK: AssistantCore structure verified with all improvements")
+        print("   NOTE: Full initialization requires model files (skipped in integration test)")
             return True
     except Exception as e:
         print(f"   ❌ AssistantCore integration error: {e}")
@@ -317,17 +317,17 @@ def main():
     total = len(results)
     
     for name, result in results:
-        status = "✅ PASS" if result else "❌ FAIL"
+        status = "PASS" if result else "FAIL"
         print(f"{status}: {name}")
     
     print(f"\nTotal: {passed}/{total} tests passed")
     
     if passed == total:
-        print("\n✅ ALL INTEGRATION TESTS PASSED!")
+        print("\nSUCCESS: ALL INTEGRATION TESTS PASSED!")
         print("All improvements are properly integrated.")
         return 0
     else:
-        print(f"\n⚠️  {total - passed} test(s) failed or had issues.")
+        print(f"\nWARNING: {total - passed} test(s) failed or had issues.")
         return 1
 
 

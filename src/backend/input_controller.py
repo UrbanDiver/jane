@@ -10,6 +10,7 @@ import time
 from typing import Tuple, Optional, Dict
 import platform
 from src.config.config_schema import InputControllerConfig
+from src.utils.logger import get_logger
 
 
 class InputController:
@@ -42,17 +43,18 @@ class InputController:
             pause = pause if pause is not None else 0.1
         
         self.safe_mode = safe_mode
+        self.logger = get_logger(__name__)
         
         # Configure pyautogui
         pyautogui.PAUSE = pause
         pyautogui.FAILSAFE = safe_mode  # Move mouse to corner to abort
         
         if safe_mode:
-            print("InputController initialized (safe_mode=True)")
-            print("  Failsafe enabled: Move mouse to corner to abort")
+            self.logger.info("InputController initialized (safe_mode=True)")
+            self.logger.debug("  Failsafe enabled: Move mouse to corner to abort")
         else:
-            print("InputController initialized (safe_mode=False)")
-            print("  ⚠️  WARNING: Failsafe disabled!")
+            self.logger.warning("InputController initialized (safe_mode=False)")
+            self.logger.warning("  ⚠️  WARNING: Failsafe disabled!")
     
     def type_text(
         self,

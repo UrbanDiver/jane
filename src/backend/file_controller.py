@@ -11,6 +11,7 @@ from pathlib import Path
 from typing import List, Optional, Dict
 import json
 from src.config.config_schema import FileControllerConfig
+from src.utils.logger import get_logger
 
 
 class FileController:
@@ -49,10 +50,11 @@ class FileController:
         
         self.safe_mode = safe_mode
         self.allowed_dirs = allowed_dirs
+        self.logger = get_logger(__name__)
         
-        print(f"FileController initialized (safe_mode={safe_mode})")
+        self.logger.info(f"FileController initialized (safe_mode={safe_mode})")
         if safe_mode:
-            print(f"  Allowed directories: {len(self.allowed_dirs)}")
+            self.logger.debug(f"  Allowed directories: {len(self.allowed_dirs)}")
     
     def _check_path_safety(self, path: Path) -> bool:
         """

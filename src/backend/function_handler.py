@@ -9,6 +9,7 @@ import json
 from typing import Dict, List, Callable, Optional, Any
 from datetime import datetime
 import inspect
+from src.utils.logger import get_logger, log_performance, log_timing
 
 
 class FunctionHandler:
@@ -22,8 +23,9 @@ class FunctionHandler:
     def __init__(self):
         """Initialize the function handler."""
         self.functions = {}
+        self.logger = get_logger(__name__)
         self.register_default_functions()
-        print(f"FunctionHandler initialized with {len(self.functions)} functions")
+        self.logger.info(f"FunctionHandler initialized with {len(self.functions)} functions")
     
     def register(
         self,
@@ -42,14 +44,14 @@ class FunctionHandler:
             parameters: JSON Schema for function parameters
         """
         if name in self.functions:
-            print(f"⚠️  Warning: Function '{name}' already registered, overwriting...")
+            self.logger.warning(f"Function '{name}' already registered, overwriting...")
         
         self.functions[name] = {
             "function": func,
             "description": description,
             "parameters": parameters
         }
-        print(f"✅ Registered function: {name}")
+        self.logger.debug(f"Registered function: {name}")
     
     def register_default_functions(self):
         """Register built-in utility functions."""
@@ -137,6 +139,7 @@ class FunctionHandler:
             }
         """
         if function_name not in self.functions:
+            self.logger.warning(f"Unknown function: {function_name}")
             return {
                 "success": False,
                 "error": f"Unknown function: {function_name}"
@@ -146,7 +149,50 @@ class FunctionHandler:
         func = func_info["function"]
         args = arguments or {}
         
+        self.logger.debug(f"Executing function: {function_name} with args: {args}")
+        
         try:
+            with log_timing(f"Function execution: {function_name}", self.logger):
+                # Get function signature to validate arguments
+                sig = inspect.signature(func)
+                params = sig.parameters
+                
+                # Filter arguments to only include those the function accepts
+                filtered_args = {}
+                for param_name, param in params.items():
+                    if param_name in args:
+                        filtered_args[param_name] = args[param_name]
+                    elif param.default == inspect.Parameter.empty:
+                        # Required parameter missing
+                        error_msg = f"Missing required parameter: {param_name}"
+                        self.logger.error(error_msg)
+                        return {
+                            "success": False,
+                            "error": error_msg
+                        }
+                
+                # Execute function
+                result = func(**filtered_args)
+                
+                self.logger.info(f"Function {function_name} executed successfully")
+                return {
+                    "success": True,
+                    "result": result
+                }
+            
+        except TypeError as e:
+            error_msg = f"Invalid arguments: {str(e)}"
+            self.logger.error(error_msg)
+            return {
+                "success": False,
+                "error": error_msg
+            }
+        except Exception as e:
+            self.logger.error(f"Error executing function {function_name}: {e}", exc_info=True)
+            return {
+                "success": False,
+                "error": str(e)
+            }
             # Get function signature to validate arguments
             sig = inspect.signature(func)
             params = sig.parameters

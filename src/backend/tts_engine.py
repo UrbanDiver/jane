@@ -14,6 +14,7 @@ from typing import Optional, Dict, List
 import tempfile
 import os
 from src.config.config_schema import TTSConfig
+from src.utils.logger import get_logger, log_performance, log_timing
 
 
 class TTSEngine:
@@ -49,13 +50,15 @@ class TTSEngine:
         
         self.device = device
         self.model_name = model_name
+        self.logger = get_logger(__name__)
         
-        print(f"Loading TTS model: {model_name}")
-        print(f"  Device: {device}")
+        self.logger.info(f"Loading TTS model: {model_name}")
+        self.logger.debug(f"  Device: {device}")
         
         try:
-            self.tts = TTS(model_name).to(device)
-            print(f"✅ TTS model loaded successfully!")
+            with log_timing(f"TTS model loading ({model_name})", self.logger):
+                self.tts = TTS(model_name).to(device)
+            self.logger.info(f"✅ TTS model loaded successfully!")
             
             # Get model info
             self.speaker = None
@@ -66,9 +69,10 @@ class TTSEngine:
                 self.language = self.tts.language
             
         except Exception as e:
-            print(f"❌ Error loading TTS model: {e}")
+            self.logger.error(f"❌ Error loading TTS model: {e}", exc_info=True)
             raise
     
+    @log_performance("TTS Synthesis")
     def synthesize(
         self,
         text: str,
@@ -94,7 +98,7 @@ class TTSEngine:
                 "sample_rate": int        # Audio sample rate
             }
         """
-        start_time = time.time()
+        self.logger.debug(f"Synthesizing text: '{text[:50]}{'...' if len(text) > 50 else ''}'")
         
         # Use temp file if no output path provided
         if output_path is None:
@@ -124,8 +128,6 @@ class TTSEngine:
                     file_path=output_path
                 )
             
-            elapsed = time.time() - start_time
-            
             # Get sample rate from audio file
             try:
                 audio_data, sample_rate = sf.read(output_path)
@@ -134,16 +136,18 @@ class TTSEngine:
             
             result = {
                 "output_path": output_path,
-                "duration": elapsed,
+                "duration": 0,  # Will be set by decorator
                 "text": text,
                 "sample_rate": sample_rate,
                 "is_temp": temp_file
             }
             
+            self.logger.debug(f"Synthesis complete: {output_path}")
+            
             return result
             
         except Exception as e:
-            print(f"❌ Error during synthesis: {e}")
+            self.logger.error(f"❌ Error during synthesis: {e}", exc_info=True)
             # Cleanup temp file on error
             if temp_file and Path(output_path).exists():
                 os.unlink(output_path)
@@ -168,7 +172,7 @@ class TTSEngine:
         Returns:
             Dictionary with synthesis results
         """
-        print(f"🔊 Speaking: '{text[:50]}{'...' if len(text) > 50 else ''}'")
+        self.logger.info(f"🔊 Speaking: '{text[:50]}{'...' if len(text) > 50 else ''}'")
         
         # Synthesize
         result = self.synthesize(text, speaker=speaker, language=language)
@@ -181,7 +185,7 @@ class TTSEngine:
             if wait:
                 sd.wait()
             
-            print(f"⏱️  TTS latency: {result['duration']:.2f}s")
+            self.logger.debug(f"⏱️  TTS latency: {result['duration']:.2f}s")
             
             # Cleanup temp file
             if result.get("is_temp") and Path(result["output_path"]).exists():
@@ -190,7 +194,7 @@ class TTSEngine:
             return result
             
         except Exception as e:
-            print(f"❌ Error playing audio: {e}")
+            self.logger.error(f"❌ Error playing audio: {e}", exc_info=True)
             # Cleanup temp file on error
             if result.get("is_temp") and Path(result["output_path"]).exists():
                 os.unlink(result["output_path"])

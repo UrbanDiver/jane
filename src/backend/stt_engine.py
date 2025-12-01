@@ -10,6 +10,7 @@ import time
 from pathlib import Path
 from typing import Dict, Optional
 from src.config.config_schema import STTConfig
+from src.utils.logger import get_logger, log_performance, log_timing
 
 
 class STTEngine:
@@ -51,18 +52,21 @@ class STTEngine:
             compute_type = compute_type or "float16"
             num_workers = num_workers or 4
         
-        print(f"Loading Whisper {model_size} on {device}...")
-        print(f"  Compute type: {compute_type}")
-        print(f"  Workers: {num_workers}")
+        self.logger = get_logger(__name__)
+        self.logger.info(f"Loading Whisper {model_size} on {device}...")
+        self.logger.debug(f"  Compute type: {compute_type}")
+        self.logger.debug(f"  Workers: {num_workers}")
         
         try:
-            self.model = WhisperModel(
-                model_size,
-                device=device,
-                compute_type=compute_type,
-                num_workers=num_workers
-            )
-            print(f"✅ Whisper model loaded successfully!")
+            with log_timing(f"Whisper model loading ({model_size})", self.logger):
+                self.model = WhisperModel(
+                    model_size,
+                    device=device,
+                    compute_type=compute_type,
+                    num_workers=num_workers
+                )
+            
+            self.logger.info(f"✅ Whisper model loaded successfully!")
             
             # Store configuration
             self.model_size = model_size
@@ -70,9 +74,10 @@ class STTEngine:
             self.compute_type = compute_type
             
         except Exception as e:
-            print(f"❌ Error loading Whisper model: {e}")
+            self.logger.error(f"❌ Error loading Whisper model: {e}", exc_info=True)
             raise
     
+    @log_performance("STT Transcription")
     def transcribe(
         self,
         audio_path: str,
@@ -101,9 +106,11 @@ class STTEngine:
             }
         """
         if not Path(audio_path).exists():
+            self.logger.error(f"Audio file not found: {audio_path}")
             raise FileNotFoundError(f"Audio file not found: {audio_path}")
         
-        start_time = time.time()
+        self.logger.debug(f"Transcribing audio: {audio_path}")
+        self.logger.debug(f"  Language: {language}, Beam size: {beam_size}, VAD: {vad_filter}")
         
         try:
             # Transcribe with options
@@ -130,19 +137,23 @@ class STTEngine:
             
             # Combine all text
             full_text = " ".join(text_parts)
-            elapsed = time.time() - start_time
             
-            return {
+            result = {
                 "text": full_text.strip(),
                 "language": info.language,
                 "language_probability": info.language_probability,
-                "duration": elapsed,
+                "duration": 0,  # Will be set by decorator
                 "segments": segment_list,
                 "audio_duration": info.duration if hasattr(info, 'duration') else None
             }
             
+            self.logger.info(f"Transcription complete: {len(full_text)} characters, "
+                           f"language: {info.language} ({info.language_probability:.2%})")
+            
+            return result
+            
         except Exception as e:
-            print(f"❌ Error during transcription: {e}")
+            self.logger.error(f"❌ Error during transcription: {e}", exc_info=True)
             raise
     
     def transcribe_bytes(
@@ -195,7 +206,7 @@ class STTEngine:
             return result
             
         except Exception as e:
-            print(f"❌ Error transcribing bytes: {e}")
+            self.logger.error(f"❌ Error transcribing bytes: {e}", exc_info=True)
             raise
     
     def get_model_info(self) -> Dict:

@@ -9,6 +9,7 @@ import psutil
 from typing import List, Optional, Dict
 import time
 from src.config.config_schema import AppControllerConfig
+from src.utils.logger import get_logger
 
 
 class AppController:
@@ -41,8 +42,9 @@ class AppController:
                 "edge": r"C:\Program Files (x86)\Microsoft\Edge\Application\msedge.exe",
             }
         
-        print("AppController initialized")
-        print(f"  Common apps registered: {len(self.common_apps)}")
+        self.logger = get_logger(__name__)
+        self.logger.info("AppController initialized")
+        self.logger.debug(f"  Common apps registered: {len(self.common_apps)}")
     
     def launch_app(
         self,

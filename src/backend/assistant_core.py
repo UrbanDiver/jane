@@ -13,6 +13,7 @@ from src.backend.file_controller import FileController
 from src.backend.app_controller import AppController
 from src.backend.input_controller import InputController
 from src.config import load_config, get_config, AssistantConfig
+from src.utils.logger import get_logger, log_performance, log_timing
 from typing import Dict, List, Optional
 import json
 import time
@@ -54,29 +55,30 @@ class AssistantCore:
                 config.tts.model_name = tts_model_name
         
         self.config = config
+        self.logger = get_logger(__name__)
         
-        print("=" * 60)
-        print("Initializing AI Assistant Core...")
-        print("=" * 60)
+        self.logger.info("=" * 60)
+        self.logger.info("Initializing AI Assistant Core...")
+        self.logger.info("=" * 60)
         
         # Core engines
-        print("\n1. Initializing STT engine...")
+        self.logger.info("1. Initializing STT engine...")
         self.stt = StreamingSTT(config=config.stt)
         
-        print("\n2. Initializing TTS engine...")
+        self.logger.info("2. Initializing TTS engine...")
         self.tts = TTSEngine(config=config.tts)
         
-        print("\n3. Initializing LLM engine...")
+        self.logger.info("3. Initializing LLM engine...")
         self.llm = LLMEngine(config=config.llm)
         
         # Controllers
-        print("\n4. Initializing controllers...")
+        self.logger.info("4. Initializing controllers...")
         self.file_ctrl = FileController(config=config.file_controller)
         self.app_ctrl = AppController(config=config.app_controller)
         self.input_ctrl = InputController(config=config.input_controller)
         
         # Function handler
-        print("\n5. Setting up function handler...")
+        self.logger.info("5. Setting up function handler...")
         self.function_handler = FunctionHandler()
         self._register_functions()
         
@@ -100,9 +102,9 @@ Be concise and helpful. When asked to perform actions, use the available functio
         # Store max conversation history from config
         self.max_conversation_history = config.max_conversation_history
         
-        print("\n" + "=" * 60)
-        print("✅ Assistant Core initialized successfully!")
-        print("=" * 60)
+        self.logger.info("=" * 60)
+        self.logger.info("✅ Assistant Core initialized successfully!")
+        self.logger.info("=" * 60)
     
     def _register_functions(self):
         """Register all control functions with the function handler."""
@@ -257,7 +259,7 @@ Be concise and helpful. When asked to perform actions, use the available functio
             }
         )
         
-        print(f"   ✅ Registered {len(self.function_handler.list_functions())} functions")
+        self.logger.info(f"✅ Registered {len(self.function_handler.list_functions())} functions")
     
     def listen(self, duration: float = 5.0) -> str:
         """
@@ -269,9 +271,12 @@ Be concise and helpful. When asked to perform actions, use the available functio
         Returns:
             Transcribed text
         """
-        print("🎤 Listening...")
+        self.logger.info("🎤 Listening...")
         result = self.stt.listen_and_transcribe(duration=duration)
-        return result.get('text', '').strip()
+        text = result.get('text', '').strip()
+        if text:
+            self.logger.info(f"Transcribed: '{text}'")
+        return text
     
     def speak(self, text: str):
         """
@@ -309,7 +314,7 @@ Be concise and helpful. When asked to perform actions, use the available functio
         })
         
         # Get LLM response
-        print("🤔 Thinking...")
+        self.logger.info("🤔 Thinking...")
         
         # Check if we should use function calling
         if use_functions:
@@ -411,11 +416,11 @@ Be concise and helpful. When asked to perform actions, use the available functio
         
         Continuously listens for voice input, processes it, and responds.
         """
-        print("\n" + "=" * 60)
-        print("AI Assistant Ready!")
-        print("=" * 60)
-        print("\nVoice interaction loop starting...")
-        print("Say 'goodbye' or 'exit' to stop.\n")
+        self.logger.info("=" * 60)
+        self.logger.info("AI Assistant Ready!")
+        self.logger.info("=" * 60)
+        self.logger.info("Voice interaction loop starting...")
+        self.logger.info("Say 'goodbye' or 'exit' to stop.")
         
         self.speak("Hello! I'm Jane, your AI assistant. I'm ready to help you.")
         
@@ -427,28 +432,27 @@ Be concise and helpful. When asked to perform actions, use the available functio
                 if not user_input.strip():
                     continue
                 
-                print(f"\n👤 You: {user_input}")
+                self.logger.info(f"👤 You: {user_input}")
                 
                 # Check for exit commands
                 if any(word in user_input.lower() for word in ["goodbye", "exit", "quit", "stop"]):
                     self.speak("Goodbye! Have a great day!")
+                    self.logger.info("User requested exit")
                     break
                 
                 # Process command
                 response = self.process_command(user_input)
-                print(f"🤖 Jane: {response}")
+                self.logger.info(f"🤖 Jane: {response}")
                 
                 # Speak response
                 self.speak(response)
                 
             except KeyboardInterrupt:
-                print("\n\nExiting...")
+                self.logger.info("Exiting (KeyboardInterrupt)...")
                 self.speak("Goodbye!")
                 break
             except Exception as e:
-                print(f"❌ Error: {e}")
-                import traceback
-                traceback.print_exc()
+                self.logger.error(f"❌ Error in voice loop: {e}", exc_info=True)
                 continue
     
     def get_status(self) -> Dict:

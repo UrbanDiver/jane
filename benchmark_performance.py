@@ -20,6 +20,12 @@ sys.path.insert(0, str(Path(__file__).parent))
 
 try:
     import torch
+    HAS_TORCH = True
+except ImportError:
+    HAS_TORCH = False
+    torch = None
+
+try:
     import psutil
     HAS_PSUTIL = True
 except ImportError:
@@ -46,7 +52,7 @@ def timer(description: str):
 def get_gpu_memory() -> Optional[Dict]:
     """Get GPU memory usage."""
     try:
-        if torch.cuda.is_available():
+        if HAS_TORCH and torch and torch.cuda.is_available():
             return {
                 "allocated": torch.cuda.memory_allocated() / 1024**3,  # GB
                 "reserved": torch.cuda.memory_reserved() / 1024**3,  # GB
@@ -82,8 +88,14 @@ def benchmark_stt():
     print("=" * 60)
     
     try:
-        from src.backend.stt_engine import STTEngine
-        from src.config import get_config
+        # Check if dependencies are available
+        try:
+            from src.backend.stt_engine import STTEngine
+            from src.config import get_config
+        except ImportError as e:
+            print(f"  SKIP: Required dependencies not available: {e}")
+            print("  Install dependencies: pip install -r requirements.txt")
+            return {"error": f"Dependencies not available: {e}"}
         
         config = get_config()
         
@@ -133,8 +145,14 @@ def benchmark_tts():
     print("=" * 60)
     
     try:
-        from src.backend.tts_engine import TTSEngine
-        from src.config import get_config
+        # Check if dependencies are available
+        try:
+            from src.backend.tts_engine import TTSEngine
+            from src.config import get_config
+        except ImportError as e:
+            print(f"  SKIP: Required dependencies not available: {e}")
+            print("  Install dependencies: pip install -r requirements.txt")
+            return {"error": f"Dependencies not available: {e}"}
         
         config = get_config()
         test_text = "Hello, this is a test of the text to speech engine. It should synthesize this text quickly."
@@ -170,8 +188,14 @@ def benchmark_llm():
     print("=" * 60)
     
     try:
-        from src.backend.llm_engine import LLMEngine
-        from src.config import get_config
+        # Check if dependencies are available
+        try:
+            from src.backend.llm_engine import LLMEngine
+            from src.config import get_config
+        except ImportError as e:
+            print(f"  SKIP: Required dependencies not available: {e}")
+            print("  Install dependencies: pip install -r requirements.txt")
+            return {"error": f"Dependencies not available: {e}"}
         
         config = get_config()
         test_messages = [
@@ -224,7 +248,13 @@ def benchmark_end_to_end():
     print("=" * 60)
     
     try:
-        from src.backend.assistant_core import AssistantCore
+        # Check if dependencies are available
+        try:
+            from src.backend.assistant_core import AssistantCore
+        except ImportError as e:
+            print(f"  SKIP: Required dependencies not available: {e}")
+            print("  Install dependencies: pip install -r requirements.txt")
+            return {"error": f"Dependencies not available: {e}"}
         
         test_command = "What time is it?"
         
@@ -264,7 +294,13 @@ def benchmark_streaming():
     print("=" * 60)
     
     try:
-        from src.backend.assistant_core import AssistantCore
+        # Check if dependencies are available
+        try:
+            from src.backend.assistant_core import AssistantCore
+        except ImportError as e:
+            print(f"  SKIP: Required dependencies not available: {e}")
+            print("  Install dependencies: pip install -r requirements.txt")
+            return {"error": f"Dependencies not available: {e}"}
         
         test_command = "Tell me a short story about artificial intelligence."
         
@@ -307,7 +343,7 @@ def generate_report(results: Dict):
     report.append(f"**Date:** {time.strftime('%Y-%m-%d %H:%M:%S')}\n")
     report.append(f"**System:** {sys.platform}\n")
     
-    if torch.cuda.is_available():
+    if HAS_TORCH and torch and torch.cuda.is_available():
         report.append(f"**GPU:** {torch.cuda.get_device_name(0)}\n")
         report.append(f"**CUDA Version:** {torch.version.cuda}\n")
     
@@ -408,12 +444,12 @@ def main():
     print("System Information")
     print("=" * 60)
     
-    if torch.cuda.is_available():
+    if HAS_TORCH and torch and torch.cuda.is_available():
         print(f"GPU: {torch.cuda.get_device_name(0)}")
         print(f"CUDA Version: {torch.version.cuda}")
         print(f"PyTorch Version: {torch.__version__}")
     else:
-        print("GPU: Not available (CPU mode)")
+        print("GPU: Not available (CPU mode or PyTorch not installed)")
     
     sys_mem = get_system_memory()
     if sys_mem and "error" not in sys_mem:

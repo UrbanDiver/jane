@@ -131,6 +131,27 @@ class InputControllerConfig(BaseModel):
     )
 
 
+class WakeWordConfig(BaseModel):
+    """Wake word detection configuration."""
+    
+    enabled: bool = Field(
+        default=False,
+        description="Enable wake word detection"
+    )
+    wake_words: List[str] = Field(
+        default_factory=lambda: ["jane", "hey jane"],
+        description="List of wake words to detect"
+    )
+    sensitivity: float = Field(
+        default=0.5,
+        description="Sensitivity for wake word detection (0.0-1.0)"
+    )
+    check_interval: float = Field(
+        default=0.1,
+        description="Interval in seconds to check for wake word"
+    )
+
+
 class AssistantConfig(BaseModel):
     """Main assistant configuration."""
     

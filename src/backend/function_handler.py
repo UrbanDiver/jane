@@ -10,6 +10,7 @@ from typing import Dict, List, Callable, Optional, Any
 from datetime import datetime
 import inspect
 from src.utils.logger import get_logger, log_performance, log_timing
+from src.utils.error_handler import handle_error
 
 
 class FunctionHandler:
@@ -181,40 +182,17 @@ class FunctionHandler:
                 }
             
         except TypeError as e:
-            error_msg = f"Invalid arguments: {str(e)}"
-            self.logger.error(error_msg)
+            error_info = handle_error(e, context={"function": function_name, "arguments": args}, logger=self.logger)
             return {
                 "success": False,
-                "error": error_msg
+                "error": error_info["message"]
             }
         except Exception as e:
-            self.logger.error(f"Error executing function {function_name}: {e}", exc_info=True)
+            error_info = handle_error(e, context={"function": function_name, "arguments": args}, logger=self.logger)
+            self.logger.error(f"Error executing function {function_name}: {error_info['message']}", exc_info=True)
             return {
                 "success": False,
-                "error": str(e)
-            }
-            # Get function signature to validate arguments
-            sig = inspect.signature(func)
-            params = sig.parameters
-            
-            # Filter arguments to only include those the function accepts
-            filtered_args = {}
-            for param_name, param in params.items():
-                if param_name in args:
-                    filtered_args[param_name] = args[param_name]
-                elif param.default == inspect.Parameter.empty:
-                    # Required parameter missing
-                    return {
-                        "success": False,
-                        "error": f"Missing required parameter: {param_name}"
-                    }
-            
-            # Execute function
-            result = func(**filtered_args)
-            
-            return {
-                "success": True,
-                "result": result
+                "error": error_info["message"]
             }
             
         except TypeError as e:

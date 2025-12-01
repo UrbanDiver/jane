@@ -11,6 +11,8 @@ from pathlib import Path
 from typing import Dict, Optional
 from src.config.config_schema import STTConfig
 from src.utils.logger import get_logger, log_performance, log_timing
+from src.utils.retry import retry
+from src.utils.error_handler import handle_error, ErrorType
 
 
 class STTEngine:
@@ -78,6 +80,7 @@ class STTEngine:
             raise
     
     @log_performance("STT Transcription")
+    @retry(max_retries=2, initial_delay=1.0, retryable_exceptions=(RuntimeError, OSError))
     def transcribe(
         self,
         audio_path: str,
@@ -153,7 +156,8 @@ class STTEngine:
             return result
             
         except Exception as e:
-            self.logger.error(f"❌ Error during transcription: {e}", exc_info=True)
+            error_info = handle_error(e, context={"audio_path": audio_path, "language": language}, logger=self.logger)
+            self.logger.error(f"❌ Error during transcription: {error_info['message']}", exc_info=True)
             raise
     
     def transcribe_bytes(

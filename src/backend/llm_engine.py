@@ -9,8 +9,11 @@ import time
 from pathlib import Path
 from typing import Dict, List, Optional
 import json
+import torch
 from src.config.config_schema import LLMConfig
 from src.utils.logger import get_logger, log_performance, log_timing
+from src.utils.retry import retry
+from src.utils.error_handler import handle_error, ErrorType
 
 
 class LLMEngine:
@@ -82,10 +85,30 @@ class LLMEngine:
             self.n_ctx = n_ctx
             
         except Exception as e:
-            self.logger.error(f"❌ Error loading LLM: {e}", exc_info=True)
+            error_info = handle_error(e, context={"model_path": model_path}, logger=self.logger)
+            
+            # Try CPU fallback if GPU error
+            if error_info["error_type"] == ErrorType.RESOURCE and "gpu" in str(e).lower():
+                self.logger.warning("GPU error detected, attempting CPU fallback...")
+                try:
+                    self.llm = Llama(
+                        model_path=model_path,
+                        n_gpu_layers=0,  # Force CPU
+                        n_ctx=n_ctx,
+                        n_batch=n_batch,
+                        verbose=verbose
+                    )
+                    self.logger.info("✅ LLM loaded successfully on CPU (GPU fallback)")
+                    self.n_gpu_layers = 0
+                    return
+                except Exception as fallback_error:
+                    self.logger.error(f"CPU fallback also failed: {fallback_error}")
+            
+            self.logger.error(f"❌ Error loading LLM: {error_info['message']}", exc_info=True)
             raise
     
     @log_performance("LLM Generation")
+    @retry(max_retries=2, initial_delay=0.5, retryable_exceptions=(RuntimeError,))
     def generate(
         self,
         prompt: str,
@@ -147,10 +170,16 @@ class LLMEngine:
             return result
             
         except Exception as e:
-            self.logger.error(f"❌ Error during generation: {e}", exc_info=True)
+            error_info = handle_error(
+                e,
+                context={"prompt_length": len(prompt), "max_tokens": max_tokens},
+                logger=self.logger
+            )
+            self.logger.error(f"❌ Error during generation: {error_info['message']}", exc_info=True)
             raise
     
     @log_performance("LLM Chat")
+    @retry(max_retries=2, initial_delay=0.5, retryable_exceptions=(RuntimeError,))
     def chat(
         self,
         messages: List[Dict[str, str]],
@@ -206,7 +235,12 @@ class LLMEngine:
             return result
             
         except Exception as e:
-            self.logger.error(f"❌ Error during chat: {e}", exc_info=True)
+            error_info = handle_error(
+                e,
+                context={"message_count": len(messages), "max_tokens": max_tokens},
+                logger=self.logger
+            )
+            self.logger.error(f"❌ Error during chat: {error_info['message']}", exc_info=True)
             raise
     
     def stream_chat(

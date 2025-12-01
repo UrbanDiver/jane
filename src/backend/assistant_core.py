@@ -14,6 +14,7 @@ from src.backend.app_controller import AppController
 from src.backend.input_controller import InputController
 from src.config import load_config, get_config, AssistantConfig
 from src.utils.logger import get_logger, log_performance, log_timing
+from src.utils.error_handler import handle_error
 from typing import Dict, List, Optional
 import json
 import time
@@ -452,7 +453,15 @@ Be concise and helpful. When asked to perform actions, use the available functio
                 self.speak("Goodbye!")
                 break
             except Exception as e:
-                self.logger.error(f"❌ Error in voice loop: {e}", exc_info=True)
+                error_info = handle_error(e, context={"user_input": user_input}, logger=self.logger)
+                self.logger.error(f"❌ Error in voice loop: {error_info['message']}", exc_info=True)
+                
+                # Try to provide user feedback
+                try:
+                    self.speak("I encountered an error. Please try again.")
+                except:
+                    pass  # Don't fail if TTS also fails
+                
                 continue
     
     def get_status(self) -> Dict:

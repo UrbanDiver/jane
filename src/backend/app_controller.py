@@ -8,31 +8,44 @@ import subprocess
 import psutil
 from typing import List, Optional, Dict
 import time
+from src.config.config_schema import AppControllerConfig
+from src.utils.logger import get_logger
+from src.interfaces.controllers import AppControllerInterface
 
 
-class AppController:
+class AppController(AppControllerInterface):
     """
     Controller for application management.
     
     Provides functionality to launch, list, and close applications.
     """
     
-    def __init__(self):
-        """Initialize application controller."""
-        # Common applications with their executable paths
-        self.common_apps = {
-            "chrome": r"C:\Program Files\Google\Chrome\Application\chrome.exe",
-            "notepad": "notepad.exe",
-            "explorer": "explorer.exe",
-            "calculator": "calc.exe",
-            "paint": "mspaint.exe",
-            "cmd": "cmd.exe",
-            "powershell": "powershell.exe",
-            "edge": r"C:\Program Files (x86)\Microsoft\Edge\Application\msedge.exe",
-        }
+    def __init__(self, config: Optional[AppControllerConfig] = None):
+        """
+        Initialize application controller.
         
-        print("AppController initialized")
-        print(f"  Common apps registered: {len(self.common_apps)}")
+        Args:
+            config: AppControllerConfig object (optional)
+        """
+        # Use config if provided, otherwise use defaults
+        if config:
+            self.common_apps = config.common_apps
+        else:
+            # Default common applications
+            self.common_apps = {
+                "chrome": r"C:\Program Files\Google\Chrome\Application\chrome.exe",
+                "notepad": "notepad.exe",
+                "explorer": "explorer.exe",
+                "calculator": "calc.exe",
+                "paint": "mspaint.exe",
+                "cmd": "cmd.exe",
+                "powershell": "powershell.exe",
+                "edge": r"C:\Program Files (x86)\Microsoft\Edge\Application\msedge.exe",
+            }
+        
+        self.logger = get_logger(__name__)
+        self.logger.info("AppController initialized")
+        self.logger.debug(f"  Common apps registered: {len(self.common_apps)}")
     
     def launch_app(
         self,

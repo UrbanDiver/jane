@@ -9,35 +9,53 @@ import pyautogui
 import time
 from typing import Tuple, Optional, Dict
 import platform
+from src.config.config_schema import InputControllerConfig
+from src.utils.logger import get_logger
+from src.interfaces.controllers import InputControllerInterface
 
 
-class InputController:
+class InputController(InputControllerInterface):
     """
     Controller for keyboard and mouse input.
     
     Provides safe input control with failsafe mechanisms.
     """
     
-    def __init__(self, safe_mode: bool = True, pause: float = 0.1):
+    def __init__(
+        self,
+        config: Optional[InputControllerConfig] = None,
+        safe_mode: Optional[bool] = None,
+        pause: Optional[float] = None
+    ):
         """
         Initialize input controller.
         
         Args:
+            config: InputControllerConfig object (takes precedence over individual params)
             safe_mode: Enable safety features (failsafe, pauses)
             pause: Pause between actions in seconds
         """
+        # Use config if provided, otherwise use individual params or defaults
+        if config:
+            safe_mode = config.safe_mode
+            pause = config.pause
+        else:
+            safe_mode = safe_mode if safe_mode is not None else True
+            pause = pause if pause is not None else 0.1
+        
         self.safe_mode = safe_mode
+        self.logger = get_logger(__name__)
         
         # Configure pyautogui
         pyautogui.PAUSE = pause
         pyautogui.FAILSAFE = safe_mode  # Move mouse to corner to abort
         
         if safe_mode:
-            print("InputController initialized (safe_mode=True)")
-            print("  Failsafe enabled: Move mouse to corner to abort")
+            self.logger.info("InputController initialized (safe_mode=True)")
+            self.logger.debug("  Failsafe enabled: Move mouse to corner to abort")
         else:
-            print("InputController initialized (safe_mode=False)")
-            print("  ⚠️  WARNING: Failsafe disabled!")
+            self.logger.warning("InputController initialized (safe_mode=False)")
+            self.logger.warning("  ⚠️  WARNING: Failsafe disabled!")
     
     def type_text(
         self,

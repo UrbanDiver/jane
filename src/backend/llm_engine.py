@@ -9,9 +9,15 @@ import time
 from pathlib import Path
 from typing import Dict, List, Optional
 import json
+import torch
+from src.config.config_schema import LLMConfig
+from src.utils.logger import get_logger, log_performance, log_timing
+from src.utils.retry import retry
+from src.utils.error_handler import handle_error, ErrorType
+from src.interfaces.engines import LLMEngineInterface
 
 
-class LLMEngine:
+class LLMEngine(LLMEngineInterface):
     """
     Language Model engine using llama.cpp.
     
@@ -20,39 +26,59 @@ class LLMEngine:
     
     def __init__(
         self,
-        model_path: str,
-        n_gpu_layers: int = -1,
-        n_ctx: int = 4096,
-        n_batch: int = 512,
-        verbose: bool = False
+        config: Optional[LLMConfig] = None,
+        model_path: Optional[str] = None,
+        n_gpu_layers: Optional[int] = None,
+        n_ctx: Optional[int] = None,
+        n_batch: Optional[int] = None,
+        verbose: Optional[bool] = None
     ):
         """
         Initialize the LLM engine.
         
         Args:
+            config: LLMConfig object (takes precedence over individual params)
             model_path: Path to GGUF model file
             n_gpu_layers: Number of layers to offload to GPU (-1 = all layers)
             n_ctx: Context window size
             n_batch: Batch size for processing
             verbose: Enable verbose logging
         """
+        # Use config if provided, otherwise use individual params or defaults
+        if config:
+            model_path = config.model_path
+            n_gpu_layers = config.n_gpu_layers
+            n_ctx = config.n_ctx
+            n_batch = config.n_batch
+            verbose = config.verbose
+        else:
+            # Require model_path if no config
+            if model_path is None:
+                raise ValueError("model_path is required if config is not provided")
+            n_gpu_layers = n_gpu_layers if n_gpu_layers is not None else -1
+            n_ctx = n_ctx if n_ctx is not None else 4096
+            n_batch = n_batch if n_batch is not None else 512
+            verbose = verbose if verbose is not None else False
+        
         if not Path(model_path).exists():
             raise FileNotFoundError(f"Model file not found: {model_path}")
         
-        print(f"Loading LLM from: {model_path}")
-        print(f"  GPU layers: {n_gpu_layers} ({'all' if n_gpu_layers == -1 else n_gpu_layers} layers)")
-        print(f"  Context size: {n_ctx}")
-        print(f"  Batch size: {n_batch}")
+        self.logger = get_logger(__name__)
+        self.logger.info(f"Loading LLM from: {model_path}")
+        self.logger.debug(f"  GPU layers: {n_gpu_layers} ({'all' if n_gpu_layers == -1 else n_gpu_layers} layers)")
+        self.logger.debug(f"  Context size: {n_ctx}")
+        self.logger.debug(f"  Batch size: {n_batch}")
         
         try:
-            self.llm = Llama(
-                model_path=model_path,
-                n_gpu_layers=n_gpu_layers,
-                n_ctx=n_ctx,
-                n_batch=n_batch,
-                verbose=verbose
-            )
-            print("✅ LLM loaded successfully!")
+            with log_timing("LLM model loading", self.logger):
+                self.llm = Llama(
+                    model_path=model_path,
+                    n_gpu_layers=n_gpu_layers,
+                    n_ctx=n_ctx,
+                    n_batch=n_batch,
+                    verbose=verbose
+                )
+            self.logger.info("✅ LLM loaded successfully!")
             
             # Store configuration
             self.model_path = model_path
@@ -60,9 +86,30 @@ class LLMEngine:
             self.n_ctx = n_ctx
             
         except Exception as e:
-            print(f"❌ Error loading LLM: {e}")
+            error_info = handle_error(e, context={"model_path": model_path}, logger=self.logger)
+            
+            # Try CPU fallback if GPU error
+            if error_info["error_type"] == ErrorType.RESOURCE and "gpu" in str(e).lower():
+                self.logger.warning("GPU error detected, attempting CPU fallback...")
+                try:
+                    self.llm = Llama(
+                        model_path=model_path,
+                        n_gpu_layers=0,  # Force CPU
+                        n_ctx=n_ctx,
+                        n_batch=n_batch,
+                        verbose=verbose
+                    )
+                    self.logger.info("✅ LLM loaded successfully on CPU (GPU fallback)")
+                    self.n_gpu_layers = 0
+                    return
+                except Exception as fallback_error:
+                    self.logger.error(f"CPU fallback also failed: {fallback_error}")
+            
+            self.logger.error(f"❌ Error loading LLM: {error_info['message']}", exc_info=True)
             raise
     
+    @log_performance("LLM Generation")
+    @retry(max_retries=2, initial_delay=0.5, retryable_exceptions=(RuntimeError,))
     def generate(
         self,
         prompt: str,
@@ -94,7 +141,8 @@ class LLMEngine:
                 'tokens_per_second': float       # Generation speed
             }
         """
-        start_time = time.time()
+        self.logger.debug(f"Generating text (max_tokens={max_tokens}, temp={temperature})")
+        self.logger.debug(f"Prompt: '{prompt[:100]}{'...' if len(prompt) > 100 else ''}'")
         
         try:
             response = self.llm(
@@ -108,28 +156,39 @@ class LLMEngine:
                 echo=False
             )
             
-            elapsed = time.time() - start_time
             text = response['choices'][0]['text']
             tokens = response['usage']['completion_tokens']
             
-            return {
+            result = {
                 'text': text.strip(),
                 'tokens': tokens,
-                'time': elapsed,
-                'tokens_per_second': tokens / elapsed if elapsed > 0 else 0
+                'time': 0,  # Will be set by decorator
+                'tokens_per_second': 0  # Will be calculated by decorator
             }
             
+            self.logger.info(f"Generated {tokens} tokens: '{text[:100]}{'...' if len(text) > 100 else ''}'")
+            
+            return result
+            
         except Exception as e:
-            print(f"❌ Error during generation: {e}")
+            error_info = handle_error(
+                e,
+                context={"prompt_length": len(prompt), "max_tokens": max_tokens},
+                logger=self.logger
+            )
+            self.logger.error(f"❌ Error during generation: {error_info['message']}", exc_info=True)
             raise
     
+    @log_performance("LLM Chat")
+    @retry(max_retries=2, initial_delay=0.5, retryable_exceptions=(RuntimeError,))
     def chat(
         self,
         messages: List[Dict[str, str]],
         max_tokens: int = 256,
         temperature: float = 0.7,
         top_p: float = 0.9,
-        stop: Optional[List[str]] = None
+        stop: Optional[List[str]] = None,
+        tools: Optional[List[Dict]] = None
     ) -> Dict:
         """
         Chat completion with message history.
@@ -141,6 +200,7 @@ class LLMEngine:
             temperature: Sampling temperature
             top_p: Nucleus sampling parameter
             stop: List of stop sequences
+            tools: Optional list of function definitions for function calling
             
         Returns:
             Dictionary with chat results:
@@ -148,33 +208,70 @@ class LLMEngine:
                 'response': str,                # Assistant's response
                 'time': float,                  # Generation time
                 'tokens': int,                  # Tokens generated
-                'tokens_per_second': float      # Generation speed
+                'tokens_per_second': float,     # Generation speed
+                'function_calls': List[Dict]    # List of function calls if any
             }
         """
-        start_time = time.time()
+        self.logger.debug(f"Chat completion (messages={len(messages)}, max_tokens={max_tokens}, tools={len(tools) if tools else 0})")
         
         try:
-            response = self.llm.create_chat_completion(
-                messages=messages,
-                max_tokens=max_tokens,
-                temperature=temperature,
-                top_p=top_p,
-                stop=stop
-            )
-            
-            elapsed = time.time() - start_time
-            content = response['choices'][0]['message']['content']
-            tokens = response['usage']['completion_tokens']
-            
-            return {
-                'response': content.strip(),
-                'time': elapsed,
-                'tokens': tokens,
-                'tokens_per_second': tokens / elapsed if elapsed > 0 else 0
+            # Prepare chat completion kwargs
+            completion_kwargs = {
+                "messages": messages,
+                "max_tokens": max_tokens,
+                "temperature": temperature,
+                "top_p": top_p
             }
             
+            if stop:
+                completion_kwargs["stop"] = stop
+            
+            if tools:
+                completion_kwargs["tools"] = tools
+            
+            response = self.llm.create_chat_completion(**completion_kwargs)
+            
+            message = response['choices'][0]['message']
+            content = message.get('content', '')
+            tokens = response['usage']['completion_tokens']
+            
+            # Check for function calls
+            function_calls = []
+            if 'tool_calls' in message:
+                for tool_call in message['tool_calls']:
+                    function_calls.append({
+                        'id': tool_call.get('id'),
+                        'function': {
+                            'name': tool_call['function']['name'],
+                            'arguments': tool_call['function'].get('arguments', '{}')
+                        }
+                    })
+            
+            result = {
+                'response': content.strip() if content else '',
+                'time': 0,  # Will be set by decorator
+                'tokens': tokens,
+                'tokens_per_second': 0,  # Will be calculated by decorator
+                'function_calls': function_calls
+            }
+            
+            if function_calls:
+                self.logger.info(f"Chat response with {len(function_calls)} function call(s): {tokens} tokens")
+                for fc in function_calls:
+                    self.logger.debug(f"  Function call: {fc['function']['name']}")
+            else:
+                self.logger.info(f"Chat response: {tokens} tokens")
+                self.logger.debug(f"Response: '{content[:100]}{'...' if len(content) > 100 else ''}'")
+            
+            return result
+            
         except Exception as e:
-            print(f"❌ Error during chat: {e}")
+            error_info = handle_error(
+                e,
+                context={"message_count": len(messages), "max_tokens": max_tokens},
+                logger=self.logger
+            )
+            self.logger.error(f"❌ Error during chat: {error_info['message']}", exc_info=True)
             raise
     
     def stream_chat(
@@ -225,7 +322,7 @@ class LLMEngine:
             }
             
         except Exception as e:
-            print(f"❌ Error during streaming: {e}")
+            self.logger.error(f"❌ Error during streaming: {e}", exc_info=True)
             raise
     
     def get_model_info(self) -> Dict:

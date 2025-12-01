@@ -9,9 +9,12 @@ import json
 from typing import Dict, List, Callable, Optional, Any
 from datetime import datetime
 import inspect
+from src.utils.logger import get_logger, log_performance, log_timing
+from src.utils.error_handler import handle_error
+from src.interfaces.function_handler import FunctionHandlerInterface
 
 
-class FunctionHandler:
+class FunctionHandler(FunctionHandlerInterface):
     """
     Handler for LLM function calling.
     
@@ -22,8 +25,9 @@ class FunctionHandler:
     def __init__(self):
         """Initialize the function handler."""
         self.functions = {}
+        self.logger = get_logger(__name__)
         self.register_default_functions()
-        print(f"FunctionHandler initialized with {len(self.functions)} functions")
+        self.logger.info(f"FunctionHandler initialized with {len(self.functions)} functions")
     
     def register(
         self,
@@ -42,14 +46,14 @@ class FunctionHandler:
             parameters: JSON Schema for function parameters
         """
         if name in self.functions:
-            print(f"⚠️  Warning: Function '{name}' already registered, overwriting...")
+            self.logger.warning(f"Function '{name}' already registered, overwriting...")
         
         self.functions[name] = {
             "function": func,
             "description": description,
             "parameters": parameters
         }
-        print(f"✅ Registered function: {name}")
+        self.logger.debug(f"Registered function: {name}")
     
     def register_default_functions(self):
         """Register built-in utility functions."""
@@ -116,6 +120,25 @@ class FunctionHandler:
             for name, info in self.functions.items()
         ]
     
+    def format_functions_for_llm(self) -> List[Dict]:
+        """
+        Format functions for LLM function calling (OpenAI/llama.cpp format).
+        
+        Returns:
+            List of function definitions in LLM format
+        """
+        tools = []
+        for name, info in self.functions.items():
+            tools.append({
+                "type": "function",
+                "function": {
+                    "name": name,
+                    "description": info["description"],
+                    "parameters": info["parameters"]
+                }
+            })
+        return tools
+    
     def execute(
         self,
         function_name: str,
@@ -137,6 +160,7 @@ class FunctionHandler:
             }
         """
         if function_name not in self.functions:
+            self.logger.warning(f"Unknown function: {function_name}")
             return {
                 "success": False,
                 "error": f"Unknown function: {function_name}"
@@ -146,29 +170,49 @@ class FunctionHandler:
         func = func_info["function"]
         args = arguments or {}
         
+        self.logger.debug(f"Executing function: {function_name} with args: {args}")
+        
         try:
-            # Get function signature to validate arguments
-            sig = inspect.signature(func)
-            params = sig.parameters
+            with log_timing(f"Function execution: {function_name}", self.logger):
+                # Get function signature to validate arguments
+                sig = inspect.signature(func)
+                params = sig.parameters
+                
+                # Filter arguments to only include those the function accepts
+                filtered_args = {}
+                for param_name, param in params.items():
+                    if param_name in args:
+                        filtered_args[param_name] = args[param_name]
+                    elif param.default == inspect.Parameter.empty:
+                        # Required parameter missing
+                        error_msg = f"Missing required parameter: {param_name}"
+                        self.logger.error(error_msg)
+                        return {
+                            "success": False,
+                            "error": error_msg
+                        }
+                
+                # Execute function
+                result = func(**filtered_args)
+                
+                self.logger.info(f"Function {function_name} executed successfully")
+                return {
+                    "success": True,
+                    "result": result
+                }
             
-            # Filter arguments to only include those the function accepts
-            filtered_args = {}
-            for param_name, param in params.items():
-                if param_name in args:
-                    filtered_args[param_name] = args[param_name]
-                elif param.default == inspect.Parameter.empty:
-                    # Required parameter missing
-                    return {
-                        "success": False,
-                        "error": f"Missing required parameter: {param_name}"
-                    }
-            
-            # Execute function
-            result = func(**filtered_args)
-            
+        except TypeError as e:
+            error_info = handle_error(e, context={"function": function_name, "arguments": args}, logger=self.logger)
             return {
-                "success": True,
-                "result": result
+                "success": False,
+                "error": error_info["message"]
+            }
+        except Exception as e:
+            error_info = handle_error(e, context={"function": function_name, "arguments": args}, logger=self.logger)
+            self.logger.error(f"Error executing function {function_name}: {error_info['message']}", exc_info=True)
+            return {
+                "success": False,
+                "error": error_info["message"]
             }
             
         except TypeError as e:

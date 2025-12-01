@@ -10,37 +10,52 @@ import shutil
 from pathlib import Path
 from typing import List, Optional, Dict
 import json
+from src.config.config_schema import FileControllerConfig
+from src.utils.logger import get_logger
+from src.interfaces.controllers import FileControllerInterface
 
 
-class FileController:
+class FileController(FileControllerInterface):
     """
     Controller for file system operations.
     
     Provides safe file operations with directory restrictions.
     """
     
-    def __init__(self, safe_mode: bool = True):
+    def __init__(
+        self,
+        config: Optional[FileControllerConfig] = None,
+        safe_mode: Optional[bool] = None
+    ):
         """
         Initialize file controller.
         
         Args:
+            config: FileControllerConfig object (takes precedence over individual params)
             safe_mode: Enable safety checks (restrict to user directories)
         """
+        # Use config if provided, otherwise use individual params or defaults
+        if config:
+            safe_mode = config.safe_mode
+            allowed_dirs = [Path(d).expanduser() for d in config.allowed_directories]
+        else:
+            safe_mode = safe_mode if safe_mode is not None else True
+            allowed_dirs = [
+                Path.home() / "Documents",
+                Path.home() / "Desktop",
+                Path.home() / "Downloads",
+                Path.home() / "Pictures",
+                Path.home() / "Videos",
+                Path.home() / "Music"
+            ]
+        
         self.safe_mode = safe_mode
+        self.allowed_dirs = allowed_dirs
+        self.logger = get_logger(__name__)
         
-        # Allowed directories in safe mode
-        self.allowed_dirs = [
-            Path.home() / "Documents",
-            Path.home() / "Desktop",
-            Path.home() / "Downloads",
-            Path.home() / "Pictures",
-            Path.home() / "Videos",
-            Path.home() / "Music"
-        ]
-        
-        print(f"FileController initialized (safe_mode={safe_mode})")
+        self.logger.info(f"FileController initialized (safe_mode={safe_mode})")
         if safe_mode:
-            print(f"  Allowed directories: {len(self.allowed_dirs)}")
+            self.logger.debug(f"  Allowed directories: {len(self.allowed_dirs)}")
     
     def _check_path_safety(self, path: Path) -> bool:
         """

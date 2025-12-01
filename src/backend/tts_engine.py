@@ -13,9 +13,13 @@ from pathlib import Path
 from typing import Optional, Dict, List
 import tempfile
 import os
+from src.config.config_schema import TTSConfig
+from src.utils.logger import get_logger, log_performance, log_timing
+from src.utils.memory_manager import temp_file, get_memory_manager
+from src.interfaces.engines import TTSEngineInterface
 
 
-class TTSEngine:
+class TTSEngine(TTSEngineInterface):
     """
     Text-to-Speech engine using Coqui TTS.
     
@@ -24,28 +28,39 @@ class TTSEngine:
     
     def __init__(
         self,
-        model_name: str = "tts_models/en/ljspeech/tacotron2-DDC",
+        config: Optional[TTSConfig] = None,
+        model_name: Optional[str] = None,
         device: Optional[str] = None
     ):
         """
         Initialize the TTS engine.
         
         Args:
+            config: TTSConfig object (takes precedence over individual params)
             model_name: TTS model name (see TTS.list_models() for options)
             device: Device to use ("cuda" or "cpu"). Auto-detects if None.
         """
+        # Use config if provided, otherwise use individual params or defaults
+        if config:
+            model_name = config.model_name
+            device = config.device
+        else:
+            model_name = model_name or "tts_models/en/ljspeech/tacotron2-DDC"
+        
         if device is None:
             device = "cuda" if torch.cuda.is_available() else "cpu"
         
         self.device = device
         self.model_name = model_name
+        self.logger = get_logger(__name__)
         
-        print(f"Loading TTS model: {model_name}")
-        print(f"  Device: {device}")
+        self.logger.info(f"Loading TTS model: {model_name}")
+        self.logger.debug(f"  Device: {device}")
         
         try:
-            self.tts = TTS(model_name).to(device)
-            print(f"✅ TTS model loaded successfully!")
+            with log_timing(f"TTS model loading ({model_name})", self.logger):
+                self.tts = TTS(model_name).to(device)
+            self.logger.info(f"✅ TTS model loaded successfully!")
             
             # Get model info
             self.speaker = None
@@ -56,9 +71,10 @@ class TTSEngine:
                 self.language = self.tts.language
             
         except Exception as e:
-            print(f"❌ Error loading TTS model: {e}")
+            self.logger.error(f"❌ Error loading TTS model: {e}", exc_info=True)
             raise
     
+    @log_performance("TTS Synthesis")
     def synthesize(
         self,
         text: str,
@@ -84,7 +100,7 @@ class TTSEngine:
                 "sample_rate": int        # Audio sample rate
             }
         """
-        start_time = time.time()
+        self.logger.debug(f"Synthesizing text: '{text[:50]}{'...' if len(text) > 50 else ''}'")
         
         # Use temp file if no output path provided
         if output_path is None:
@@ -114,8 +130,6 @@ class TTSEngine:
                     file_path=output_path
                 )
             
-            elapsed = time.time() - start_time
-            
             # Get sample rate from audio file
             try:
                 audio_data, sample_rate = sf.read(output_path)
@@ -124,16 +138,18 @@ class TTSEngine:
             
             result = {
                 "output_path": output_path,
-                "duration": elapsed,
+                "duration": 0,  # Will be set by decorator
                 "text": text,
                 "sample_rate": sample_rate,
                 "is_temp": temp_file
             }
             
+            self.logger.debug(f"Synthesis complete: {output_path}")
+            
             return result
             
         except Exception as e:
-            print(f"❌ Error during synthesis: {e}")
+            self.logger.error(f"❌ Error during synthesis: {e}", exc_info=True)
             # Cleanup temp file on error
             if temp_file and Path(output_path).exists():
                 os.unlink(output_path)
@@ -158,32 +174,36 @@ class TTSEngine:
         Returns:
             Dictionary with synthesis results
         """
-        print(f"🔊 Speaking: '{text[:50]}{'...' if len(text) > 50 else ''}'")
+        self.logger.info(f"🔊 Speaking: '{text[:50]}{'...' if len(text) > 50 else ''}'")
         
         # Synthesize
         result = self.synthesize(text, speaker=speaker, language=language)
         
         # Load and play audio
         try:
-            audio_data, sample_rate = sf.read(result["output_path"])
+            output_path = result["output_path"]
+            audio_data, sample_rate = sf.read(output_path)
             sd.play(audio_data, sample_rate)
             
             if wait:
                 sd.wait()
             
-            print(f"⏱️  TTS latency: {result['duration']:.2f}s")
+            self.logger.debug(f"⏱️  TTS latency: {result['duration']:.2f}s")
             
-            # Cleanup temp file
-            if result.get("is_temp") and Path(result["output_path"]).exists():
-                os.unlink(result["output_path"])
+            # Note: Temp files are cleaned up by context manager in synthesize()
+            # Only cleanup if this is a persistent temp file
+            if result.get("is_temp") and "_temp_path" not in result:
+                # This shouldn't happen with new implementation, but keep for safety
+                if Path(output_path).exists():
+                    try:
+                        os.unlink(output_path)
+                    except:
+                        pass
             
             return result
             
         except Exception as e:
-            print(f"❌ Error playing audio: {e}")
-            # Cleanup temp file on error
-            if result.get("is_temp") and Path(result["output_path"]).exists():
-                os.unlink(result["output_path"])
+            self.logger.error(f"❌ Error playing audio: {e}", exc_info=True)
             raise
     
     def synthesize_to_bytes(
@@ -203,23 +223,33 @@ class TTSEngine:
         Returns:
             Audio data as bytes (WAV format)
         """
-        result = self.synthesize(text, speaker=speaker, language=language)
-        
-        try:
-            with open(result["output_path"], "rb") as f:
+        # Use temp file context manager
+        with temp_file(suffix=".wav") as temp_path:
+            # Synthesize to temp file
+            if speaker and hasattr(self.tts, 'speakers') and speaker in self.tts.speakers:
+                self.tts.tts_to_file(
+                    text=text,
+                    file_path=str(temp_path),
+                    speaker=speaker
+                )
+            elif language and hasattr(self.tts, 'language'):
+                self.tts.tts_to_file(
+                    text=text,
+                    file_path=str(temp_path),
+                    language=language
+                )
+            else:
+                self.tts.tts_to_file(
+                    text=text,
+                    file_path=str(temp_path)
+                )
+            
+            # Read bytes before cleanup
+            with open(temp_path, "rb") as f:
                 audio_bytes = f.read()
             
-            # Cleanup
-            if result.get("is_temp") and Path(result["output_path"]).exists():
-                os.unlink(result["output_path"])
-            
+            # Temp file automatically cleaned up by context manager
             return audio_bytes
-            
-        except Exception as e:
-            print(f"❌ Error reading audio bytes: {e}")
-            if result.get("is_temp") and Path(result["output_path"]).exists():
-                os.unlink(result["output_path"])
-            raise
     
     def get_model_info(self) -> Dict:
         """Get information about the loaded model."""

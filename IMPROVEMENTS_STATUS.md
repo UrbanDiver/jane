@@ -84,7 +84,7 @@
 - **Started:** 2025-11-30
 - **Completed:** 2025-11-30
 - **Tests:** ✅ All Pass
-- **Commit:** (latest commit hash)
+- **Commit:** d7ec910 - "perf: Optimize STT engine for lower latency"
 - **Notes:** Quantization, caching, and chunked processing implemented.
 
 ---

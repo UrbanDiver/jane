@@ -19,6 +19,7 @@ from typing import Dict, Optional, Callable
 from src.backend.audio_capture import AudioCapture
 from src.backend.stt_engine import STTEngine
 from src.config.config_schema import STTConfig
+from src.utils.memory_manager import temp_file
 from typing import Optional
 
 
@@ -111,19 +112,17 @@ class StreamingSTT:
             print("Recording complete. Transcribing...")
             
             # Save to temp file (faster-whisper needs file path)
-            with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as f:
-                temp_path = f.name
-                sf.write(temp_path, audio, self.sample_rate)
+            with temp_file(suffix=".wav") as temp_path:
+                sf.write(str(temp_path), audio, self.sample_rate)
+                
+                # Transcribe
+                result = self.stt_engine.transcribe(
+                    str(temp_path),
+                    language=language,
+                    beam_size=beam_size
+                )
             
-            # Transcribe
-            result = self.stt_engine.transcribe(
-                temp_path,
-                language=language,
-                beam_size=beam_size
-            )
-            
-            # Cleanup
-            os.unlink(temp_path)
+            # Temp file automatically cleaned up by context manager
             
             return result
             
@@ -171,19 +170,17 @@ class StreamingSTT:
             
             try:
                 # Save audio to temp file
-                with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as f:
-                    temp_path = f.name
-                    sf.write(temp_path, audio_array, self.sample_rate)
+                with temp_file(suffix=".wav") as temp_path:
+                    sf.write(str(temp_path), audio_array, self.sample_rate)
+                    
+                    # Transcribe
+                    result = self.stt_engine.transcribe(
+                        str(temp_path),
+                        language=self.language,
+                        beam_size=self.beam_size
+                    )
                 
-                # Transcribe
-                result = self.stt_engine.transcribe(
-                    temp_path,
-                    language=self.language,
-                    beam_size=self.beam_size
-                )
-                
-                # Cleanup
-                os.unlink(temp_path)
+                # Temp file automatically cleaned up by context manager
                 
                 # Call callback
                 if self.on_transcription:

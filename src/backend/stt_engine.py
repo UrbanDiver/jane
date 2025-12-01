@@ -13,6 +13,7 @@ from src.config.config_schema import STTConfig
 from src.utils.logger import get_logger, log_performance, log_timing
 from src.utils.retry import retry
 from src.utils.error_handler import handle_error, ErrorType
+from src.utils.memory_manager import get_memory_manager
 
 
 class STTEngine:
@@ -177,36 +178,31 @@ class STTEngine:
             language: Language code
             beam_size: Beam size for beam search
             vad_filter: Enable voice activity detection filter
-            
+        
         Returns:
             Dictionary with transcription results
         """
-        import tempfile
         import soundfile as sf
         import numpy as np
-        
-        start_time = time.time()
+        from src.utils.memory_manager import temp_file
         
         try:
             # Convert bytes to numpy array
             audio_array = np.frombuffer(audio_bytes, dtype=np.float32)
             
             # Save to temporary file (faster-whisper needs file path)
-            with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as f:
-                temp_path = f.name
-                sf.write(temp_path, audio_array, sample_rate)
+            with temp_file(suffix=".wav") as temp_path:
+                sf.write(str(temp_path), audio_array, sample_rate)
+                
+                # Transcribe
+                result = self.transcribe(
+                    str(temp_path),
+                    language=language,
+                    beam_size=beam_size,
+                    vad_filter=vad_filter
+                )
             
-            # Transcribe
-            result = self.transcribe(
-                temp_path,
-                language=language,
-                beam_size=beam_size,
-                vad_filter=vad_filter
-            )
-            
-            # Cleanup
-            Path(temp_path).unlink()
-            
+            # Temp file automatically cleaned up by context manager
             return result
             
         except Exception as e:

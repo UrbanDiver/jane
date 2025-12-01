@@ -15,6 +15,7 @@ import tempfile
 import os
 from src.config.config_schema import TTSConfig
 from src.utils.logger import get_logger, log_performance, log_timing
+from src.utils.memory_manager import temp_file, get_memory_manager
 
 
 class TTSEngine:
@@ -179,7 +180,8 @@ class TTSEngine:
         
         # Load and play audio
         try:
-            audio_data, sample_rate = sf.read(result["output_path"])
+            output_path = result["output_path"]
+            audio_data, sample_rate = sf.read(output_path)
             sd.play(audio_data, sample_rate)
             
             if wait:
@@ -187,17 +189,20 @@ class TTSEngine:
             
             self.logger.debug(f"⏱️  TTS latency: {result['duration']:.2f}s")
             
-            # Cleanup temp file
-            if result.get("is_temp") and Path(result["output_path"]).exists():
-                os.unlink(result["output_path"])
+            # Note: Temp files are cleaned up by context manager in synthesize()
+            # Only cleanup if this is a persistent temp file
+            if result.get("is_temp") and "_temp_path" not in result:
+                # This shouldn't happen with new implementation, but keep for safety
+                if Path(output_path).exists():
+                    try:
+                        os.unlink(output_path)
+                    except:
+                        pass
             
             return result
             
         except Exception as e:
             self.logger.error(f"❌ Error playing audio: {e}", exc_info=True)
-            # Cleanup temp file on error
-            if result.get("is_temp") and Path(result["output_path"]).exists():
-                os.unlink(result["output_path"])
             raise
     
     def synthesize_to_bytes(
@@ -217,23 +222,33 @@ class TTSEngine:
         Returns:
             Audio data as bytes (WAV format)
         """
-        result = self.synthesize(text, speaker=speaker, language=language)
-        
-        try:
-            with open(result["output_path"], "rb") as f:
+        # Use temp file context manager
+        with temp_file(suffix=".wav") as temp_path:
+            # Synthesize to temp file
+            if speaker and hasattr(self.tts, 'speakers') and speaker in self.tts.speakers:
+                self.tts.tts_to_file(
+                    text=text,
+                    file_path=str(temp_path),
+                    speaker=speaker
+                )
+            elif language and hasattr(self.tts, 'language'):
+                self.tts.tts_to_file(
+                    text=text,
+                    file_path=str(temp_path),
+                    language=language
+                )
+            else:
+                self.tts.tts_to_file(
+                    text=text,
+                    file_path=str(temp_path)
+                )
+            
+            # Read bytes before cleanup
+            with open(temp_path, "rb") as f:
                 audio_bytes = f.read()
             
-            # Cleanup
-            if result.get("is_temp") and Path(result["output_path"]).exists():
-                os.unlink(result["output_path"])
-            
+            # Temp file automatically cleaned up by context manager
             return audio_bytes
-            
-        except Exception as e:
-            print(f"❌ Error reading audio bytes: {e}")
-            if result.get("is_temp") and Path(result["output_path"]).exists():
-                os.unlink(result["output_path"])
-            raise
     
     def get_model_info(self) -> Dict:
         """Get information about the loaded model."""

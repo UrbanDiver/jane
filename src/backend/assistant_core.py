@@ -17,6 +17,7 @@ from src.config import load_config, get_config, AssistantConfig
 from src.utils.logger import get_logger, log_performance, log_timing
 from src.utils.error_handler import handle_error
 from src.utils.sentence_splitter import SentenceSplitter
+from src.utils.memory_manager import get_memory_manager
 from typing import Dict, List, Optional
 import json
 import time
@@ -137,6 +138,12 @@ Be concise and helpful. When asked to perform actions, use the available functio
             summarize_threshold=int(config.max_conversation_history * 1.5),  # Summarize at 1.5x threshold
             summarize_callback=summarize_messages
         )
+        
+        # Memory manager for cleanup
+        self.memory_manager = get_memory_manager()
+        
+        # Log initial memory usage
+        self.memory_manager.log_memory_usage("(initialization)")
         
         self.logger.info("=" * 60)
         self.logger.info("✅ Assistant Core initialized successfully!")
@@ -441,6 +448,9 @@ Be concise and helpful. When asked to perform actions, use the available functio
                 
                 full_response += delta
                 
+                # Print delta for visual feedback (optional)
+                print(delta, end='', flush=True)
+                
                 # Check for complete sentences
                 sentences = sentence_splitter.add_text(delta)
                 
@@ -457,19 +467,19 @@ Be concise and helpful. When asked to perform actions, use the available functio
                             daemon=True
                         ).start()
             
+            # Print newline after streaming
+            print()  # Newline after streaming output
+            
             # Speak any remaining text
             remaining = sentence_splitter.flush()
-            if remaining:
-                full_response_text = full_response.strip()
-                # Only speak remaining if it's substantial
-                if len(remaining) > 20:
-                    self.logger.debug(f"Speaking remaining text: '{remaining[:50]}...'")
-                    threading.Thread(
-                        target=self.tts.speak,
-                        args=(remaining,),
-                        kwargs={"wait": True},
-                        daemon=True
-                    ).start()
+            if remaining and len(remaining.strip()) > 10:
+                self.logger.debug(f"Speaking remaining text: '{remaining[:50]}...'")
+                threading.Thread(
+                    target=self.tts.speak,
+                    args=(remaining.strip(),),
+                    kwargs={"wait": True},
+                    daemon=True
+                ).start()
             
             self.logger.info(f"Streaming complete: {len(full_response)} characters")
             return full_response.strip()
@@ -587,6 +597,11 @@ Be concise and helpful. When asked to perform actions, use the available functio
                 # Note: Response may already be spoken via streaming
                 # Only speak if streaming didn't work or was disabled
                 # (This is handled in _process_streaming_response)
+                
+                # Periodic memory cleanup
+                if len(self.conversation_history) % 10 == 0:
+                    self.memory_manager.clear_gpu_cache()
+                    self.memory_manager.log_memory_usage("(periodic cleanup)")
                 
             except KeyboardInterrupt:
                 self.logger.info("Exiting (KeyboardInterrupt)...")

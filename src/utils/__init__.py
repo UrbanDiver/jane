@@ -12,6 +12,12 @@ from src.utils.error_handler import (
     get_error_handler,
     handle_error
 )
+from src.utils.memory_manager import (
+    MemoryManager,
+    get_memory_manager,
+    temp_file,
+    temp_directory
+)
 
 __all__ = [
     "get_logger",
@@ -23,5 +29,9 @@ __all__ = [
     "ErrorType",
     "get_error_handler",
     "handle_error",
+    "MemoryManager",
+    "get_memory_manager",
+    "temp_file",
+    "temp_directory",
 ]
 

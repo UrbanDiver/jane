@@ -78,7 +78,7 @@ class LLMEngine(LLMEngineInterface):
                     n_batch=n_batch,
                     verbose=verbose
                 )
-            self.logger.info("✅ LLM loaded successfully!")
+            self.logger.info("LLM loaded successfully!")
             
             # Store configuration
             self.model_path = model_path
@@ -99,13 +99,13 @@ class LLMEngine(LLMEngineInterface):
                         n_batch=n_batch,
                         verbose=verbose
                     )
-                    self.logger.info("✅ LLM loaded successfully on CPU (GPU fallback)")
+                    self.logger.info("LLM loaded successfully on CPU (GPU fallback)")
                     self.n_gpu_layers = 0
                     return
                 except Exception as fallback_error:
                     self.logger.error(f"CPU fallback also failed: {fallback_error}")
             
-            self.logger.error(f"❌ Error loading LLM: {error_info['message']}", exc_info=True)
+            self.logger.error(f"Error loading LLM: {error_info['message']}", exc_info=True)
             raise
     
     @log_performance("LLM Generation")
@@ -176,7 +176,7 @@ class LLMEngine(LLMEngineInterface):
                 context={"prompt_length": len(prompt), "max_tokens": max_tokens},
                 logger=self.logger
             )
-            self.logger.error(f"❌ Error during generation: {error_info['message']}", exc_info=True)
+            self.logger.error(f"Error during generation: {error_info['message']}", exc_info=True)
             raise
     
     @log_performance("LLM Chat")
@@ -271,7 +271,7 @@ class LLMEngine(LLMEngineInterface):
                 context={"message_count": len(messages), "max_tokens": max_tokens},
                 logger=self.logger
             )
-            self.logger.error(f"❌ Error during chat: {error_info['message']}", exc_info=True)
+            self.logger.error(f"Error during chat: {error_info['message']}", exc_info=True)
             raise
     
     def stream_chat(
@@ -322,7 +322,7 @@ class LLMEngine(LLMEngineInterface):
             }
             
         except Exception as e:
-            self.logger.error(f"❌ Error during streaming: {e}", exc_info=True)
+            self.logger.error(f"Error during streaming: {e}", exc_info=True)
             raise
     
     def get_model_info(self) -> Dict:

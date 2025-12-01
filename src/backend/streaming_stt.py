@@ -78,7 +78,7 @@ class StreamingSTT:
         self.sample_rate = sample_rate
         self.is_listening = False
         
-        print("✅ Streaming STT initialized")
+        print("Streaming STT initialized")
     
     def listen_and_transcribe(
         self,
@@ -211,7 +211,7 @@ class StreamingSTT:
         print("Stopping listening...")
         self.is_listening = False
         self.audio_capture.stop()
-        print("✅ Listening stopped")
+        print("Listening stopped")
     
     def transcribe_audio_file(self, audio_path: str, language: str = "en") -> Dict:
         """

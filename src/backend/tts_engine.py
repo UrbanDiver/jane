@@ -60,7 +60,7 @@ class TTSEngine(TTSEngineInterface):
         try:
             with log_timing(f"TTS model loading ({model_name})", self.logger):
                 self.tts = TTS(model_name).to(device)
-            self.logger.info(f"✅ TTS model loaded successfully!")
+            self.logger.info("TTS model loaded successfully!")
             
             # Get model info
             self.speaker = None
@@ -71,7 +71,7 @@ class TTSEngine(TTSEngineInterface):
                 self.language = self.tts.language
             
         except Exception as e:
-            self.logger.error(f"❌ Error loading TTS model: {e}", exc_info=True)
+            self.logger.error(f"Error loading TTS model: {e}", exc_info=True)
             raise
     
     @log_performance("TTS Synthesis")
@@ -149,7 +149,7 @@ class TTSEngine(TTSEngineInterface):
             return result
             
         except Exception as e:
-            self.logger.error(f"❌ Error during synthesis: {e}", exc_info=True)
+            self.logger.error(f"Error during synthesis: {e}", exc_info=True)
             # Cleanup temp file on error
             if temp_file and Path(output_path).exists():
                 os.unlink(output_path)
@@ -203,7 +203,7 @@ class TTSEngine(TTSEngineInterface):
             return result
             
         except Exception as e:
-            self.logger.error(f"❌ Error playing audio: {e}", exc_info=True)
+            self.logger.error(f"Error playing audio: {e}", exc_info=True)
             raise
     
     def synthesize_to_bytes(

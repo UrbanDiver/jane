@@ -95,10 +95,10 @@ class STTEngine(STTEngineInterface):
                     _model_cache[cache_key] = self.model
                     self.logger.debug(f"Cached model: {cache_key}")
                 
-                self.logger.info(f"✅ Whisper model loaded successfully!")
+                self.logger.info("Whisper model loaded successfully!")
                 
             except Exception as e:
-                self.logger.error(f"❌ Error loading Whisper model: {e}", exc_info=True)
+                self.logger.error(f"Error loading Whisper model: {e}", exc_info=True)
                 raise
         
         # Store configuration
@@ -237,7 +237,7 @@ class STTEngine(STTEngineInterface):
             
         except Exception as e:
             error_info = handle_error(e, context={"audio_path": audio_path, "language": language}, logger=self.logger)
-            self.logger.error(f"❌ Error during transcription: {error_info['message']}", exc_info=True)
+            self.logger.error(f"Error during transcription: {error_info['message']}", exc_info=True)
             raise
     
     def transcribe_bytes(
@@ -288,7 +288,7 @@ class STTEngine(STTEngineInterface):
             return result
             
         except Exception as e:
-            self.logger.error(f"❌ Error transcribing bytes: {e}", exc_info=True)
+            self.logger.error(f"Error transcribing bytes: {e}", exc_info=True)
             raise
     
     @staticmethod

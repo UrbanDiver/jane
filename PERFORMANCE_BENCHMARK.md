@@ -1,5 +1,5 @@
 # Performance Benchmark Report
-**Date:** 2025-11-30 23:24:29
+**Date:** 2025-11-30 23:32:33
 **System:** win32
 **GPU:** NVIDIA GeForce RTX 4090 Laptop GPU
 **CUDA Version:** 12.1
@@ -7,24 +7,29 @@
 ## Results
 
 ### STT Engine
-- Error: 'charmap' codec can't encode character '\u2705' in position 0: character maps to <undefined>
+- Initialization: 2.7360599040985107
+- Transcription: None
+- GPU Memory: 0.00 GB
 
 ### TTS Engine
-- Initialization: 0.5340375900268555
-- Synthesis: 0.7837264537811279
+- Initialization: 0.5116291046142578
+- Synthesis: 0.7579872608184814
 - GPU Memory: 0.37 GB
 
 ### LLM Engine
-- Initialization: 2.1913809776306152
-- Generation Time: 10.791870832443237s
-- Tokens per Second: 7.320324828435211
+- Initialization: 2.082853078842163
+- Generation Time: 12.044970989227295s
+- Tokens per Second: 6.558753862558533
 - GPU Memory: 0.24 GB
 
 ### End-to-End Interaction
-- Error: 'charmap' codec can't encode character '\u2705' in position 0: character maps to <undefined>
+- Initialization: None
+- Command Processing: None
+- GPU Memory: 0.61 GB
 
 ### Streaming Response
-- Error: 'charmap' codec can't encode character '\u2705' in position 0: character maps to <undefined>
+- First Token Latency: 45.337762117385864s
+- Total Time: 45.337762117385864s
 
 ## Performance Targets
 

@@ -227,7 +227,7 @@ Be concise and helpful. When asked to perform actions, use the available functio
         self.memory_manager.log_memory_usage("(initialization)")
         
         self.logger.info("=" * 60)
-        self.logger.info("✅ Assistant Core initialized successfully!")
+        self.logger.info("Assistant Core initialized successfully!")
         self.logger.info("=" * 60)
     
     def _register_functions(self):
@@ -467,7 +467,7 @@ Be concise and helpful. When asked to perform actions, use the available functio
             }
         )
         
-        self.logger.info(f"✅ Registered {len(self.function_handler.list_functions())} functions")
+        self.logger.info(f"Registered {len(self.function_handler.list_functions())} functions")
         
         # Initialize plugin system
         self.logger.info("6. Initializing plugin system...")
@@ -475,7 +475,7 @@ Be concise and helpful. When asked to perform actions, use the available functio
         
         # Load plugins
         loaded_plugins = self.plugin_manager.load_all_plugins(self)
-        self.logger.info(f"✅ Loaded {len(loaded_plugins)} plugins")
+        self.logger.info(f"Loaded {len(loaded_plugins)} plugins")
         
         # Register plugin functions
         plugin_functions = self.plugin_manager.get_all_functions()
@@ -489,7 +489,7 @@ Be concise and helpful. When asked to perform actions, use the available functio
             self.logger.debug(f"Registered plugin function: {func_name} (from {func_def.get('plugin', 'unknown')})")
         
         if plugin_functions:
-            self.logger.info(f"✅ Registered {len(plugin_functions)} plugin functions")
+            self.logger.info(f"Registered {len(plugin_functions)} plugin functions")
     
     def listen(self, duration: float = 5.0) -> str:
         """
@@ -904,7 +904,7 @@ Be concise and helpful. When asked to perform actions, use the available functio
                     break
                 except Exception as e:
                     error_info = handle_error(e, context={"user_input": user_input if 'user_input' in locals() else None}, logger=self.logger)
-                    self.logger.error(f"❌ Error in voice loop: {error_info['message']}", exc_info=True)
+                    self.logger.error(f"Error in voice loop: {error_info['message']}", exc_info=True)
     
     def _process_user_input(self, user_input: str):
         """

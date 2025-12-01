@@ -159,7 +159,7 @@
 - **Started:** 2025-11-30
 - **Completed:** 2025-11-30
 - **Tests:** ✅ All Pass
-- **Commit:** ⏳ Not Committed (pending)
+- **Commit:** [commit hash will be added]
 - **Notes:** Keyword-based wake word detection implemented. Configurable wake words, command extraction, continuous listening mode.
 
 ### Step 5.2: API Layer (Optional)

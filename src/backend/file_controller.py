@@ -12,9 +12,10 @@ from typing import List, Optional, Dict
 import json
 from src.config.config_schema import FileControllerConfig
 from src.utils.logger import get_logger
+from src.interfaces.controllers import FileControllerInterface
 
 
-class FileController:
+class FileController(FileControllerInterface):
     """
     Controller for file system operations.
     

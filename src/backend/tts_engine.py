@@ -16,9 +16,10 @@ import os
 from src.config.config_schema import TTSConfig
 from src.utils.logger import get_logger, log_performance, log_timing
 from src.utils.memory_manager import temp_file, get_memory_manager
+from src.interfaces.engines import TTSEngineInterface
 
 
-class TTSEngine:
+class TTSEngine(TTSEngineInterface):
     """
     Text-to-Speech engine using Coqui TTS.
     

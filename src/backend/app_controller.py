@@ -10,9 +10,10 @@ from typing import List, Optional, Dict
 import time
 from src.config.config_schema import AppControllerConfig
 from src.utils.logger import get_logger
+from src.interfaces.controllers import AppControllerInterface
 
 
-class AppController:
+class AppController(AppControllerInterface):
     """
     Controller for application management.
     

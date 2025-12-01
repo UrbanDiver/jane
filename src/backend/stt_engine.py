@@ -14,12 +14,13 @@ from src.utils.logger import get_logger, log_performance, log_timing
 from src.utils.retry import retry
 from src.utils.error_handler import handle_error, ErrorType
 from src.utils.memory_manager import get_memory_manager
+from src.interfaces.engines import STTEngineInterface
 
 # Global model cache
 _model_cache: Dict[str, WhisperModel] = {}
 
 
-class STTEngine:
+class STTEngine(STTEngineInterface):
     """
     Speech-to-Text engine using Faster-Whisper.
     

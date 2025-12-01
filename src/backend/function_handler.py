@@ -11,9 +11,10 @@ from datetime import datetime
 import inspect
 from src.utils.logger import get_logger, log_performance, log_timing
 from src.utils.error_handler import handle_error
+from src.interfaces.function_handler import FunctionHandlerInterface
 
 
-class FunctionHandler:
+class FunctionHandler(FunctionHandlerInterface):
     """
     Handler for LLM function calling.
     

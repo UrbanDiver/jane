@@ -11,9 +11,10 @@ from typing import Tuple, Optional, Dict
 import platform
 from src.config.config_schema import InputControllerConfig
 from src.utils.logger import get_logger
+from src.interfaces.controllers import InputControllerInterface
 
 
-class InputController:
+class InputController(InputControllerInterface):
     """
     Controller for keyboard and mouse input.
     

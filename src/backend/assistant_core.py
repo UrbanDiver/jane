@@ -990,10 +990,24 @@ Be concise and helpful. When asked to perform actions, use the available functio
                 self.logger.info(f"🤖 Jane: {response}")
             else:
                 self.logger.info(f"🤖 Jane: {response}")
-                # Speak the response
-                # Note: When function calling is used, streaming is disabled,
-                # so we need to explicitly speak the final response
-                self.speak(response)
+                # Check if function calling was likely used (which disables streaming)
+                # If function calling was used, streaming was disabled, so we need to speak
+                # If streaming was used, TTS already happened in _process_streaming_response
+                user_lower = user_input.lower()
+                function_keywords = [
+                    "time", "date", "datetime", "what time", "what date",
+                    "list files", "read file", "write file", "create file",
+                    "open app", "launch", "close app", "running apps",
+                    "search web", "look up", "find information",
+                    "system info", "cpu", "memory", "disk",
+                    "screenshot", "type", "click"
+                ]
+                likely_needs_functions = any(keyword in user_lower for keyword in function_keywords)
+                
+                # Only speak if function calling was used (streaming was disabled)
+                # Streaming responses are already spoken by _process_streaming_response
+                if likely_needs_functions:
+                    self.speak(response)
         else:
             self.logger.info(f"🤖 Jane: (empty response)")
         

@@ -19,15 +19,20 @@ def main():
     print("Jane - AI Voice Assistant")
     print("=" * 60)
     
-    # Check for model
-    model_path = "models/Qwen2.5-7B-Instruct-Q4_K_M.gguf"
+    # Load config to get model path (allows using optimized 3B model)
+    from src.config import get_config
+    config = get_config()
+    model_path = config.llm.model_path
     
+    # Check for model
     if not Path(model_path).exists():
         print(f"\n❌ Model not found: {model_path}")
+        print(f"\nConfig specifies: {model_path}")
         print("\nPlease download a model first:")
         print("  python download_llm_model.py")
         print("\nOr specify a different model path:")
         print("  python jane.py --model path/to/model.gguf")
+        print("\nOr update config.yaml with the correct model path")
         return 1
     
     # Check for command-line arguments

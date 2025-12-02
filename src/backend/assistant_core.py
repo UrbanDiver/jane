@@ -32,7 +32,6 @@ import json
 import time
 import os
 import threading
-from typing import Optional
 
 
 class AssistantCore:
@@ -514,6 +513,55 @@ Be concise and helpful. When asked to perform actions, use the available functio
         
         self.tts.speak(text, wait=True)
     
+    def _try_pattern_matching(self, user_input: str) -> Optional[str]:
+        """
+        Try to match simple patterns and execute functions directly (bypasses LLM).
+        
+        This provides instant responses for common queries like "what time is it?"
+        Expected improvement: 45s -> <1s (90-95% faster)
+        
+        Args:
+            user_input: User's input text
+            
+        Returns:
+            Response string if pattern matched, None otherwise
+        """
+        user_lower = user_input.lower().strip()
+        
+        # Pattern matching for time queries
+        time_patterns = [
+            "what time", "what's the time", "what is the time",
+            "time is it", "current time", "tell me the time",
+            "what time is", "time now", "what time now"
+        ]
+        if any(pattern in user_lower for pattern in time_patterns):
+            result = self.function_handler.execute("get_current_time")
+            if result["success"]:
+                return f"It is currently {result['result']}."
+        
+        # Pattern matching for date queries
+        date_patterns = [
+            "what date", "what's the date", "what is the date",
+            "date today", "today's date", "current date",
+            "what date is", "date now", "what date now"
+        ]
+        if any(pattern in user_lower for pattern in date_patterns):
+            result = self.function_handler.execute("get_current_date")
+            if result["success"]:
+                return f"Today is {result['result']}."
+        
+        # Pattern matching for datetime queries
+        datetime_patterns = [
+            "what date and time", "date and time", "current date and time",
+            "what's the date and time", "what is the date and time"
+        ]
+        if any(pattern in user_lower for pattern in datetime_patterns):
+            result = self.function_handler.execute("get_current_datetime")
+            if result["success"]:
+                return f"The current date and time is {result['result']}."
+        
+        return None
+    
     def process_command(
         self,
         user_input: str,
@@ -557,6 +605,14 @@ Be concise and helpful. When asked to perform actions, use the available functio
         if managed_history != self.conversation_history:
             self.logger.debug(f"Context managed: {len(self.conversation_history)} -> {len(managed_history)} messages")
             self.conversation_history = managed_history
+        
+        # Pattern matching for common functions (bypasses LLM for simple queries)
+        # This provides instant responses for time/date queries (45s -> <1s)
+        if use_functions:
+            pattern_match_result = self._try_pattern_matching(user_input)
+            if pattern_match_result:
+                self.logger.debug(f"Pattern match found, executing function directly (bypassing LLM)")
+                return pattern_match_result
         
         # Prepare function calling if enabled
         # Smart detection: only use function calling for queries that likely need functions
@@ -634,10 +690,18 @@ Be concise and helpful. When asked to perform actions, use the available functio
                     effective_temperature = 0.3  # Lower temperature = faster generation
                     self.logger.debug(f"Function calling enabled: max_tokens={effective_max_tokens}, temperature={effective_temperature} for faster response")
                 
+                # Add stop sequence for function calling to stop generation immediately after function call
+                # This prevents unnecessary token generation and speeds up function calling
+                stop_sequences = None
+                if tools and iteration == 1:
+                    stop_sequences = ["</tool_call>"]  # Stop immediately after function call tag
+                    self.logger.debug(f"Using stop sequence for function calling: {stop_sequences}")
+                
                 result = self.llm.chat(
                     managed_history,
                     max_tokens=effective_max_tokens,
                     temperature=effective_temperature,
+                    stop=stop_sequences,
                     tools=tools if iteration == 1 else None  # Only provide tools on first call
                 )
                 response = result.get('response', '')
@@ -985,29 +1049,17 @@ Be concise and helpful. When asked to perform actions, use the available functio
         
         # Log the response (but format tool calls nicely)
         if response and response.strip():
-            # Check if response looks like a tool call format
+            # Check if response looks like a tool call format (shouldn't happen, but log it)
             if response.strip().startswith('<tool_call>'):
                 self.logger.info(f"🤖 Jane: {response}")
+                # Don't speak tool call tags - function should be executed and final response spoken
             else:
                 self.logger.info(f"🤖 Jane: {response}")
-                # Check if function calling was likely used (which disables streaming)
-                # If function calling was used, streaming was disabled, so we need to speak
-                # If streaming was used, TTS already happened in _process_streaming_response
-                user_lower = user_input.lower()
-                function_keywords = [
-                    "time", "date", "datetime", "what time", "what date",
-                    "list files", "read file", "write file", "create file",
-                    "open app", "launch", "close app", "running apps",
-                    "search web", "look up", "find information",
-                    "system info", "cpu", "memory", "disk",
-                    "screenshot", "type", "click"
-                ]
-                likely_needs_functions = any(keyword in user_lower for keyword in function_keywords)
-                
-                # Only speak if function calling was used (streaming was disabled)
+                # Always speak the final response (after function execution if applicable)
+                # Pattern matching responses are already handled in process_command
                 # Streaming responses are already spoken by _process_streaming_response
-                if likely_needs_functions:
-                    self.speak(response)
+                # Function calling responses need to be spoken here
+                self.speak(response)
         else:
             self.logger.info(f"🤖 Jane: (empty response)")
         

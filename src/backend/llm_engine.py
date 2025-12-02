@@ -270,7 +270,8 @@ class LLMEngine(LLMEngineInterface):
             else:
                 # Parse function calls from text content (llama.cpp format)
                 # Look for <tool_call>...</tool_call> tags
-                tool_call_pattern = r'<tool_call>\s*(\{.*?\})\s*</tool_call>'
+                # Also handle incomplete tool calls (when stop sequence cuts off closing tag)
+                tool_call_pattern = r'<tool_call>\s*(\{.*?\})\s*(?:</tool_call>|$)'
                 matches = re.findall(tool_call_pattern, content, re.DOTALL)
                 for match in matches:
                     try:
@@ -283,10 +284,46 @@ class LLMEngine(LLMEngineInterface):
                             }
                         })
                         # Remove the tool_call from content so it's not shown to user
-                        content = re.sub(r'<tool_call>.*?</tool_call>', '', content, flags=re.DOTALL).strip()
+                        content = re.sub(r'<tool_call>.*?(?:</tool_call>|$)', '', content, flags=re.DOTALL).strip()
                     except json.JSONDecodeError:
                         self.logger.warning(f"Failed to parse tool_call JSON: {match}")
                         continue
+                
+                # Also try to parse if we see <tool_call> but no closing tag (stop sequence case)
+                if not function_calls and '<tool_call>' in content:
+                    # Extract JSON after <tool_call> tag
+                    tool_call_start = content.find('<tool_call>')
+                    if tool_call_start != -1:
+                        json_start = content.find('{', tool_call_start)
+                        if json_start != -1:
+                            # Try to extract complete JSON (may be cut off by stop sequence)
+                            json_text = content[json_start:]
+                            # Try to find closing brace
+                            brace_count = 0
+                            json_end = -1
+                            for i, char in enumerate(json_text):
+                                if char == '{':
+                                    brace_count += 1
+                                elif char == '}':
+                                    brace_count -= 1
+                                    if brace_count == 0:
+                                        json_end = i + 1
+                                        break
+                            
+                            if json_end > 0:
+                                try:
+                                    tool_call_data = json.loads(json_text[:json_end])
+                                    function_calls.append({
+                                        'id': f"call_{len(function_calls)}",
+                                        'function': {
+                                            'name': tool_call_data.get('name', ''),
+                                            'arguments': json.dumps(tool_call_data.get('arguments', {}))
+                                        }
+                                    })
+                                    # Remove the tool_call from content
+                                    content = re.sub(r'<tool_call>.*?$', '', content, flags=re.DOTALL).strip()
+                                except json.JSONDecodeError:
+                                    self.logger.warning(f"Failed to parse incomplete tool_call JSON: {json_text[:json_end]}")
             
             result = {
                 'response': content.strip() if content else '',

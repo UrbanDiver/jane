@@ -70,11 +70,11 @@ class FunctionHandler(FunctionHandlerInterface):
             """Get current date and time."""
             return datetime.now().strftime("%A, %B %d, %Y at %I:%M %p")
         
-        # Register time/date functions
+        # Register time/date functions (optimized descriptions for faster processing)
         self.register(
             "get_current_time",
             get_current_time,
-            "Get the current time in 12-hour format (e.g., '3:45 PM')",
+            "Get current time",  # Shorter description = less tokens to process
             {
                 "type": "object",
                 "properties": {},
@@ -85,7 +85,7 @@ class FunctionHandler(FunctionHandlerInterface):
         self.register(
             "get_current_date",
             get_current_date,
-            "Get today's date in a readable format (e.g., 'Monday, November 30, 2025')",
+            "Get today's date",  # Shorter description = less tokens to process
             {
                 "type": "object",
                 "properties": {},
@@ -96,7 +96,7 @@ class FunctionHandler(FunctionHandlerInterface):
         self.register(
             "get_current_datetime",
             get_current_datetime,
-            "Get the current date and time in a readable format",
+            "Get current date and time",  # Shorter description = less tokens to process
             {
                 "type": "object",
                 "properties": {},

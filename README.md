@@ -17,6 +17,7 @@ A self-hosted AI assistant that runs entirely on your local machine, powered by 
 - **[Improvements Status](IMPROVEMENTS_STATUS.md)** - Current implementation status
 - **[Complete Summary](IMPROVEMENTS_COMPLETE_SUMMARY.md)** - All improvements summary
 - **[Where We Left Off](WHERE_WE_LEFT_OFF.md)** - Session status and next steps
+- **[Performance Optimization Plan](PERFORMANCE_OPTIMIZATION_PLAN.md)** - LLM performance optimization strategy
 
 ---
 
@@ -284,11 +285,19 @@ python -c "import sounddevice as sd; print(sd.query_devices())"
 - **TTS Latency:** <2s
 - **End-to-End:** <5s
 
+### Current Status
+- ✅ **TTS:** Excellent (0.76s, meets target)
+- ⚠️ **LLM:** Below target (6.56 tokens/sec, optimization in progress)
+- ⚠️ **End-to-End:** Above target (32.22s, improving with LLM optimization)
+
+**See:** [Performance Benchmark Results](BENCHMARK_RESULTS_SUMMARY.md) | [Optimization Plan](PERFORMANCE_OPTIMIZATION_PLAN.md)
+
 ### Optimization
 - GPU acceleration enabled by default
 - Model caching for faster startup
 - Streaming responses for reduced latency
 - Smart context pruning for memory efficiency
+- **In Progress:** LLM performance optimization (config tuning, higher precision models)
 
 ---
 

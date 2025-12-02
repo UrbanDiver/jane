@@ -9,8 +9,11 @@ import logging
 import sys
 import time
 import functools
+import os
+import platform
 from pathlib import Path
 from logging.handlers import RotatingFileHandler
+from logging import FileHandler
 from typing import Optional, Callable, Any
 from datetime import datetime
 
@@ -50,6 +53,27 @@ class ColoredFormatter(logging.Formatter):
         return super().format(record)
 
 
+class SafeRotatingFileHandler(RotatingFileHandler):
+    """RotatingFileHandler that handles Windows file locking errors gracefully."""
+    
+    def emit(self, record):
+        """Emit a record, handling rotation errors gracefully."""
+        try:
+            super().emit(record)
+        except (PermissionError, OSError) as e:
+            # If rotation fails due to file locking (Windows), 
+            # try to continue with current file
+            try:
+                # Try to emit without rotation
+                if self.stream:
+                    self.stream.write(self.format(record) + self.terminator)
+                    self.stream.flush()
+            except Exception:
+                # If even that fails, just skip file logging for this record
+                # The console handler will still work
+                pass
+
+
 def _setup_logger(name: str, level: int = logging.INFO) -> logging.Logger:
     """
     Set up a logger with file and console handlers.
@@ -68,20 +92,37 @@ def _setup_logger(name: str, level: int = logging.INFO) -> logging.Logger:
     if logger.handlers:
         return logger
     
-    # File handler with rotation
-    file_handler = RotatingFileHandler(
-        LOG_FILE,
-        maxBytes=10 * 1024 * 1024,  # 10MB
-        backupCount=7,  # Keep 7 backup files (7 days)
-        encoding='utf-8'
-    )
-    file_handler.setLevel(logging.DEBUG)  # Log everything to file
-    file_formatter = logging.Formatter(
-        '%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-        datefmt='%Y-%m-%d %H:%M:%S'
-    )
-    file_handler.setFormatter(file_formatter)
-    logger.addHandler(file_handler)
+    # File handler with rotation (Windows-safe)
+    # On Windows, file locking can prevent rotation, so we use a safe handler
+    try:
+        file_handler = SafeRotatingFileHandler(
+            LOG_FILE,
+            maxBytes=10 * 1024 * 1024,  # 10MB
+            backupCount=7,  # Keep 7 backup files (7 days)
+            encoding='utf-8',
+            delay=True  # Delay file opening until first write (helps with Windows locking)
+        )
+        file_handler.setLevel(logging.DEBUG)  # Log everything to file
+        file_formatter = logging.Formatter(
+            '%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+            datefmt='%Y-%m-%d %H:%M:%S'
+        )
+        file_handler.setFormatter(file_formatter)
+        logger.addHandler(file_handler)
+    except Exception:
+        # If handler creation fails, fall back to simple FileHandler
+        try:
+            file_handler = FileHandler(LOG_FILE, encoding='utf-8', mode='a')
+            file_handler.setLevel(logging.DEBUG)
+            file_formatter = logging.Formatter(
+                '%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+                datefmt='%Y-%m-%d %H:%M:%S'
+            )
+            file_handler.setFormatter(file_formatter)
+            logger.addHandler(file_handler)
+        except Exception:
+            # If file logging completely fails, just use console
+            pass
     
     # Console handler with colors
     console_handler = logging.StreamHandler(sys.stdout)

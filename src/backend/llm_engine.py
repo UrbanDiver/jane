@@ -6,6 +6,7 @@ This module provides GPU-accelerated LLM inference using llama.cpp.
 
 from llama_cpp import Llama
 import time
+import re
 from pathlib import Path
 from typing import Dict, List, Optional
 import json
@@ -71,19 +72,38 @@ class LLMEngine(LLMEngineInterface):
         
         try:
             with log_timing("LLM model loading", self.logger):
-                self.llm = Llama(
-                    model_path=model_path,
-                    n_gpu_layers=n_gpu_layers,
-                    n_ctx=n_ctx,
-                    n_batch=n_batch,
-                    verbose=verbose
-                )
+                # Get optimization parameters from config if available
+                n_threads = config.n_threads if config and hasattr(config, 'n_threads') else 8
+                use_mmap = config.use_mmap if config and hasattr(config, 'use_mmap') else True
+                n_threads_batch = config.n_threads_batch if config and hasattr(config, 'n_threads_batch') else 8
+                
+                # Build Llama initialization kwargs
+                llama_kwargs = {
+                    "model_path": model_path,
+                    "n_gpu_layers": n_gpu_layers,
+                    "n_ctx": n_ctx,
+                    "n_batch": n_batch,
+                    "verbose": verbose,
+                    "n_threads": n_threads,
+                    "use_mmap": use_mmap,
+                    "n_threads_batch": n_threads_batch
+                }
+                
+                self.logger.debug(f"  CPU threads: {n_threads}")
+                self.logger.debug(f"  Use mmap: {use_mmap}")
+                self.logger.debug(f"  Batch threads: {n_threads_batch}")
+                
+                self.llm = Llama(**llama_kwargs)
             self.logger.info("LLM loaded successfully!")
             
             # Store configuration
             self.model_path = model_path
             self.n_gpu_layers = n_gpu_layers
             self.n_ctx = n_ctx
+            self.n_batch = n_batch
+            
+            # Verify GPU utilization
+            self.verify_gpu_utilization()
             
         except Exception as e:
             error_info = handle_error(e, context={"model_path": model_path}, logger=self.logger)
@@ -238,6 +258,7 @@ class LLMEngine(LLMEngineInterface):
             # Check for function calls
             function_calls = []
             if 'tool_calls' in message:
+                # Structured tool_calls (OpenAI format)
                 for tool_call in message['tool_calls']:
                     function_calls.append({
                         'id': tool_call.get('id'),
@@ -246,6 +267,26 @@ class LLMEngine(LLMEngineInterface):
                             'arguments': tool_call['function'].get('arguments', '{}')
                         }
                     })
+            else:
+                # Parse function calls from text content (llama.cpp format)
+                # Look for <tool_call>...</tool_call> tags
+                tool_call_pattern = r'<tool_call>\s*(\{.*?\})\s*</tool_call>'
+                matches = re.findall(tool_call_pattern, content, re.DOTALL)
+                for match in matches:
+                    try:
+                        tool_call_data = json.loads(match)
+                        function_calls.append({
+                            'id': f"call_{len(function_calls)}",
+                            'function': {
+                                'name': tool_call_data.get('name', ''),
+                                'arguments': json.dumps(tool_call_data.get('arguments', {}))
+                            }
+                        })
+                        # Remove the tool_call from content so it's not shown to user
+                        content = re.sub(r'<tool_call>.*?</tool_call>', '', content, flags=re.DOTALL).strip()
+                    except json.JSONDecodeError:
+                        self.logger.warning(f"Failed to parse tool_call JSON: {match}")
+                        continue
             
             result = {
                 'response': content.strip() if content else '',
@@ -325,12 +366,49 @@ class LLMEngine(LLMEngineInterface):
             self.logger.error(f"Error during streaming: {e}", exc_info=True)
             raise
     
+    def verify_gpu_utilization(self) -> bool:
+        """
+        Verify GPU layers are being used correctly.
+        
+        Returns:
+            True if all layers are on GPU, False otherwise
+        """
+        try:
+            if hasattr(self.llm, 'ctx') and self.llm.ctx is not None:
+                n_layers = self.llm.ctx.n_layers()
+                gpu_layers = self.llm.ctx.n_gpu_layers()
+                
+                self.logger.info(f"GPU Utilization: {gpu_layers}/{n_layers} layers on GPU")
+                
+                if self.n_gpu_layers == -1 and gpu_layers < n_layers:
+                    self.logger.warning(
+                        f"Not all layers on GPU! Expected {n_layers} layers on GPU, "
+                        f"but only {gpu_layers} are loaded. This may impact performance."
+                    )
+                    return False
+                elif self.n_gpu_layers > 0 and gpu_layers != self.n_gpu_layers:
+                    self.logger.warning(
+                        f"GPU layer mismatch! Expected {self.n_gpu_layers} layers on GPU, "
+                        f"but {gpu_layers} are loaded."
+                    )
+                    return False
+                else:
+                    self.logger.debug(f"GPU utilization verified: {gpu_layers}/{n_layers} layers on GPU")
+                    return True
+            else:
+                self.logger.debug("Could not verify GPU utilization (ctx not available)")
+                return False
+        except Exception as e:
+            self.logger.debug(f"Could not verify GPU utilization: {e}")
+            return False
+    
     def get_model_info(self) -> Dict:
         """Get information about the loaded model."""
         return {
             "model_path": self.model_path,
             "n_gpu_layers": self.n_gpu_layers,
             "n_ctx": self.n_ctx,
+            "n_batch": self.n_batch,
             "context_size": self.n_ctx
         }
 

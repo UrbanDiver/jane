@@ -148,6 +148,49 @@ class TTSEngine(TTSEngineInterface):
             
             return result
             
+        except RuntimeError as e:
+            # Handle Tacotron2 tensor size mismatch (internal state corruption)
+            if "size of tensor" in str(e) and "must match" in str(e):
+                self.logger.warning(f"TTS tensor size mismatch (likely state corruption): {e}")
+                self.logger.info("Attempting to reset TTS model state by reinitializing...")
+                # Try to reset by reinitializing the model
+                try:
+                    old_model = self.tts
+                    self.tts = TTS(self.model_name).to(self.device)
+                    # Retry synthesis once
+                    if speaker and hasattr(self.tts, 'speakers') and speaker in self.tts.speakers:
+                        self.tts.tts_to_file(text=text, file_path=output_path, speaker=speaker)
+                    elif language and hasattr(self.tts, 'language'):
+                        self.tts.tts_to_file(text=text, file_path=output_path, language=language)
+                    else:
+                        self.tts.tts_to_file(text=text, file_path=output_path)
+                    
+                    # Get sample rate
+                    try:
+                        audio_data, sample_rate = sf.read(output_path)
+                    except:
+                        sample_rate = 22050
+                    
+                    result = {
+                        "output_path": output_path,
+                        "duration": 0,
+                        "text": text,
+                        "sample_rate": sample_rate,
+                        "is_temp": temp_file
+                    }
+                    self.logger.info("TTS synthesis succeeded after model reset")
+                    return result
+                except Exception as retry_error:
+                    self.logger.error(f"TTS synthesis failed even after reset: {retry_error}", exc_info=True)
+                    if temp_file and Path(output_path).exists():
+                        os.unlink(output_path)
+                    raise
+            
+            # Other runtime errors
+            self.logger.error(f"Error during synthesis: {e}", exc_info=True)
+            if temp_file and Path(output_path).exists():
+                os.unlink(output_path)
+            raise
         except Exception as e:
             self.logger.error(f"Error during synthesis: {e}", exc_info=True)
             # Cleanup temp file on error

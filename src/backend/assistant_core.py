@@ -188,40 +188,34 @@ Be concise and helpful. When asked to perform actions, use the available functio
             self.context_manager = context_manager
         else:
             self.logger.info("6b. Initializing context manager...")
-            # Create summarization callback using LLM
-            def summarize_messages(messages: List[Dict[str, str]]) -> str:
-                """Summarize conversation messages using LLM."""
-                try:
-                    # Format messages for summarization
-                    summary_prompt = "Summarize the following conversation in 2-3 sentences, focusing on key topics and decisions:\n\n"
-                    for msg in messages:
-                        role = msg.get("role", "unknown")
-                        content = msg.get("content", "")[:200]  # Truncate long messages
-                        summary_prompt += f"{role}: {content}\n"
-                    
-                    summary_prompt += "\nSummary:"
-                    
-                    # Use LLM to generate summary
-                    result = self.llm.generate(
-                        summary_prompt,
-                        max_tokens=100,
-                        temperature=0.3
-                    )
-                    
-                    return result.get("text", "").strip()
-                except Exception as e:
-                    self.logger.warning(f"Summarization failed: {e}")
-                    return "Previous conversation context (summarization unavailable)"
-            
+            # Summarization disabled for performance (calling LLM adds 10-30s delay)
+            # Context manager will use simple pruning instead
             self.context_manager = ContextManager(
                 max_messages=config.max_conversation_history,
-                summarize_threshold=int(config.max_conversation_history * 1.5),  # Summarize at 1.5x threshold
-                summarize_callback=summarize_messages,
+                summarize_threshold=999999,  # Effectively disable (very high threshold)
+                summarize_callback=None,  # Disabled - would call LLM and add delay
                 conversation_state=self.conversation_state
             )
         
         # Memory manager for cleanup
         self.memory_manager = get_memory_manager()
+        
+        # Wake word detector (if enabled in config)
+        self.wake_word_detector = None
+        if config.wake_word.enabled:
+            self.logger.info("6c. Initializing wake word detector...")
+            self.wake_word_detector = WakeWordDetector(
+                wake_words=config.wake_word.wake_words,
+                sensitivity=config.wake_word.sensitivity
+            )
+            # Set STT engine for wake word detection
+            if hasattr(self.stt, 'stt_engine'):
+                self.wake_word_detector.set_stt_engine(self.stt.stt_engine)
+            elif hasattr(self.stt, 'model'):
+                self.wake_word_detector.set_stt_engine(self.stt)
+            self.logger.info(f"Wake word detector initialized with words: {config.wake_word.wake_words}")
+        else:
+            self.logger.info("6c. Wake word detection disabled")
         
         # Log initial memory usage
         self.memory_manager.log_memory_usage("(initialization)")
@@ -525,7 +519,7 @@ Be concise and helpful. When asked to perform actions, use the available functio
         user_input: str,
         max_tokens: int = 512,
         use_functions: bool = True,
-        stream: bool = True
+        stream: bool = False  # Changed default to False - streaming doesn't work with function calling
     ) -> str:
         """
         Process user input and generate response with function calling support.
@@ -553,9 +547,10 @@ Be concise and helpful. When asked to perform actions, use the available functio
         self.logger.info("🤔 Thinking...")
         
         # Manage context before getting LLM response
+        # Disable summarization for performance (it calls LLM and adds delay)
         managed_history = self.context_manager.manage_context(
             self.conversation_history,
-            add_summary=True
+            add_summary=False  # Disabled to reduce delays - summarization calls LLM
         )
         
         # Update conversation history (context manager may have modified it)
@@ -564,30 +559,55 @@ Be concise and helpful. When asked to perform actions, use the available functio
             self.conversation_history = managed_history
         
         # Prepare function calling if enabled
+        # Smart detection: only use function calling for queries that likely need functions
         tools = None
         if use_functions:
-            tools = self.function_handler.format_functions_for_llm()
-            if tools:
-                self.logger.debug(f"Function calling enabled with {len(tools)} functions")
+            # Quick check if query likely needs functions (reduces overhead for simple queries)
+            user_lower = user_input.lower()
+            function_keywords = [
+                "time", "date", "datetime", "what time", "what date",
+                "list files", "read file", "write file", "create file",
+                "open app", "launch", "close app", "running apps",
+                "search web", "look up", "find information",
+                "system info", "cpu", "memory", "disk",
+                "screenshot", "type", "click"
+            ]
+            
+            likely_needs_functions = any(keyword in user_lower for keyword in function_keywords)
+            
+            if likely_needs_functions:
+                tools = self.function_handler.format_functions_for_llm()
+                if tools:
+                    self.logger.debug(f"Function calling enabled with {len(tools)} functions (query likely needs functions)")
+            else:
+                self.logger.debug(f"Function calling skipped (simple conversational query)")
+                # For simple queries, skip function calling to reduce delay
+                tools = None
         
         # Get LLM response with function calling support
         max_iterations = 5  # Limit function call chains
         iteration = 0
         final_response = None
         result = None
+        function_results = []  # Store function results for fallback
         
         while iteration < max_iterations:
             iteration += 1
             
             # Execute BEFORE_LLM hook (plugins can modify messages)
-            modified_history = self.plugin_manager.execute_hook(PluginHook.BEFORE_LLM, managed_history)
-            if modified_history and len(modified_history) > 0:
-                # Use the last result if it's a list, otherwise use original
-                if isinstance(modified_history[-1], list):
-                    managed_history = modified_history[-1]
-                elif isinstance(modified_history[-1], dict):
-                    # Single message modification - replace last message
-                    managed_history = managed_history[:-1] + [modified_history[-1]]
+            # Note: Plugin hooks are usually fast, but wrap in try/except to prevent delays
+            try:
+                modified_history = self.plugin_manager.execute_hook(PluginHook.BEFORE_LLM, managed_history)
+                if modified_history and len(modified_history) > 0:
+                    # Use the last result if it's a list, otherwise use original
+                    if isinstance(modified_history[-1], list):
+                        managed_history = modified_history[-1]
+                    elif isinstance(modified_history[-1], dict):
+                        # Single message modification - replace last message
+                        managed_history = managed_history[:-1] + [modified_history[-1]]
+            except Exception as e:
+                self.logger.warning(f"Plugin hook error (continuing): {e}")
+                # Continue with original history if hook fails
             
             # Get LLM response (streaming or non-streaming)
             if stream and iteration == 1 and not tools:  # Only stream if no function calling
@@ -602,10 +622,22 @@ Be concise and helpful. When asked to perform actions, use the available functio
                 self.plugin_manager.execute_hook(PluginHook.AFTER_LLM, response)
                 break
             else:
+                # Optimize max_tokens for function calling: function calls are usually very short (10-20 tokens)
+                # Using a smaller max_tokens significantly speeds up generation when function calling is enabled
+                effective_max_tokens = max_tokens or self.config.llm.max_tokens
+                effective_temperature = self.config.llm.temperature
+                if tools and iteration == 1:
+                    # Function calling responses are typically just the tool_call tag (~16 tokens)
+                    # Using 64 tokens max for function calls speeds up generation significantly
+                    effective_max_tokens = min(64, effective_max_tokens)
+                    # Lower temperature for function calling = faster, more deterministic generation
+                    effective_temperature = 0.3  # Lower temperature = faster generation
+                    self.logger.debug(f"Function calling enabled: max_tokens={effective_max_tokens}, temperature={effective_temperature} for faster response")
+                
                 result = self.llm.chat(
                     managed_history,
-                    max_tokens=max_tokens or self.config.llm.max_tokens,
-                    temperature=self.config.llm.temperature,
+                    max_tokens=effective_max_tokens,
+                    temperature=effective_temperature,
                     tools=tools if iteration == 1 else None  # Only provide tools on first call
                 )
                 response = result.get('response', '')
@@ -616,6 +648,9 @@ Be concise and helpful. When asked to perform actions, use the available functio
             
             # Check for function calls
             if use_functions and result and 'function_calls' in result and result['function_calls']:
+                # Store function results for potential fallback
+                function_results = []
+                
                 # Execute function calls
                 for fc in result['function_calls']:
                     func_name = fc['function']['name']
@@ -640,6 +675,7 @@ Be concise and helpful. When asked to perform actions, use the available functio
                     
                     if func_result['success']:
                         result_str = str(func_result['result'])
+                        function_results.append((func_name, result_str))
                         # Add function result to conversation
                         managed_history.append({
                             "role": "tool",
@@ -669,6 +705,26 @@ Be concise and helpful. When asked to perform actions, use the available functio
             # Max iterations reached, use last response
             final_response = response
             self.logger.warning(f"Function call chain reached max iterations ({max_iterations})")
+        
+        # If final response is empty after function calls, create a natural response from function results
+        if (not final_response or not final_response.strip()) and function_results:
+            # Format function results into a natural response
+            if len(function_results) == 1:
+                func_name, result_str = function_results[0]
+                # Create a simple natural response based on function name
+                if func_name == "get_current_time":
+                    final_response = f"The current time is {result_str}."
+                elif func_name == "get_current_date":
+                    final_response = f"Today is {result_str}."
+                elif func_name == "get_current_datetime":
+                    final_response = f"The current date and time is {result_str}."
+                else:
+                    final_response = result_str
+            else:
+                # Multiple function results
+                results = [result for _, result in function_results]
+                final_response = ", ".join(results)
+            self.logger.debug(f"Generated fallback response from function results: {final_response}")
         
         # Add assistant response to history
         self.conversation_history.append({
@@ -731,36 +787,33 @@ Be concise and helpful. When asked to perform actions, use the available functio
                 
                 # Print delta for visual feedback (optional)
                 print(delta, end='', flush=True)
-                
-                # Check for complete sentences
-                sentences = sentence_splitter.add_text(delta)
-                
-                # Speak complete sentences as they arrive
-                for sentence in sentences:
-                    if sentence and sentence not in sentences_spoken:
-                        sentences_spoken.append(sentence)
-                        self.logger.debug(f"Speaking sentence: '{sentence[:50]}...'")
-                        # Speak in background thread to not block streaming
-                        threading.Thread(
-                            target=self.tts.speak,
-                            args=(sentence,),
-                            kwargs={"wait": True},
-                            daemon=True
-                        ).start()
             
             # Print newline after streaming
             print()  # Newline after streaming output
             
-            # Speak any remaining text
-            remaining = sentence_splitter.flush()
-            if remaining and len(remaining.strip()) > 10:
-                self.logger.debug(f"Speaking remaining text: '{remaining[:50]}...'")
-                threading.Thread(
-                    target=self.tts.speak,
-                    args=(remaining.strip(),),
-                    kwargs={"wait": True},
-                    daemon=True
-                ).start()
+            # Synthesize the full response at once (avoids Tacotron2 state corruption)
+            # Note: Tacotron2 has internal attention state that gets corrupted when
+            # processing multiple short sentences in quick succession
+            if full_response.strip():
+                self.logger.debug(f"Synthesizing full response: {len(full_response)} characters")
+                try:
+                    self.tts.speak(full_response.strip(), wait=True)
+                except Exception as e:
+                    self.logger.warning(f"TTS synthesis failed, trying sentence-by-sentence: {e}")
+                    # Fallback: try sentence-by-sentence with error handling
+                    sentences = sentence_splitter.add_text(full_response)
+                    remaining = sentence_splitter.flush()
+                    if remaining:
+                        sentences.append(remaining)
+                    
+                    for sentence in sentences:
+                        if sentence and len(sentence.strip()) > 5:
+                            try:
+                                self.tts.speak(sentence.strip(), wait=True)
+                            except Exception as e2:
+                                self.logger.error(f"Failed to synthesize sentence '{sentence[:50]}...': {e2}")
+                                # Continue with next sentence even if one fails
+                                continue
             
             self.logger.info(f"Streaming complete: {len(full_response)} characters")
             return full_response.strip()
@@ -896,7 +949,10 @@ Be concise and helpful. When asked to perform actions, use the available functio
                     if not user_input.strip():
                         continue
                     
-                    self._process_user_input(user_input)
+                    # Process input and check if we should exit
+                    should_exit = self._process_user_input(user_input)
+                    if should_exit:
+                        break
                     
                 except KeyboardInterrupt:
                     self.logger.info("Exiting (KeyboardInterrupt)...")
@@ -906,12 +962,15 @@ Be concise and helpful. When asked to perform actions, use the available functio
                     error_info = handle_error(e, context={"user_input": user_input if 'user_input' in locals() else None}, logger=self.logger)
                     self.logger.error(f"Error in voice loop: {error_info['message']}", exc_info=True)
     
-    def _process_user_input(self, user_input: str):
+    def _process_user_input(self, user_input: str) -> bool:
         """
         Process user input and generate response.
         
         Args:
             user_input: User's input text
+            
+        Returns:
+            True if should exit, False otherwise
         """
         self.logger.info(f"👤 You: {user_input}")
         
@@ -919,20 +978,31 @@ Be concise and helpful. When asked to perform actions, use the available functio
         if any(word in user_input.lower() for word in ["goodbye", "exit", "quit", "stop"]):
             self.speak("Goodbye! Have a great day!")
             self.logger.info("User requested exit")
-            return
+            return True  # Signal to exit the loop
         
         # Process command (with streaming enabled)
         response = self.process_command(user_input, stream=True)
-        self.logger.info(f"🤖 Jane: {response}")
         
-        # Note: Response may already be spoken via streaming
-        # Only speak if streaming didn't work or was disabled
-        # (This is handled in _process_streaming_response)
+        # Log the response (but format tool calls nicely)
+        if response and response.strip():
+            # Check if response looks like a tool call format
+            if response.strip().startswith('<tool_call>'):
+                self.logger.info(f"🤖 Jane: {response}")
+            else:
+                self.logger.info(f"🤖 Jane: {response}")
+                # Speak the response
+                # Note: When function calling is used, streaming is disabled,
+                # so we need to explicitly speak the final response
+                self.speak(response)
+        else:
+            self.logger.info(f"🤖 Jane: (empty response)")
         
         # Periodic memory cleanup
         if len(self.conversation_history) % 10 == 0:
             self.memory_manager.clear_gpu_cache()
             self.memory_manager.log_memory_usage("(periodic cleanup)")
+        
+        return False  # Continue the loop
     
     def get_status(self) -> Dict:
         """Get status of all components."""

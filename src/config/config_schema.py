@@ -78,6 +78,18 @@ class LLMConfig(BaseModel):
         default=512,
         description="Maximum tokens to generate"
     )
+    n_threads: int = Field(
+        default=8,
+        description="Number of CPU threads for non-GPU work"
+    )
+    use_mmap: bool = Field(
+        default=True,
+        description="Use memory mapping for faster model loading"
+    )
+    n_threads_batch: int = Field(
+        default=8,
+        description="Number of threads for batch processing"
+    )
 
 
 class FileControllerConfig(BaseModel):

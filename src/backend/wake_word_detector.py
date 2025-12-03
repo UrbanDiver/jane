@@ -7,7 +7,10 @@ Can use keyword matching or integrate with wake word detection libraries.
 
 from typing import Optional, Callable, List
 from threading import Thread, Event
+import threading
 import time
+import re
+from difflib import SequenceMatcher
 from src.utils.logger import get_logger, log_performance
 from src.utils.error_handler import handle_error
 
@@ -50,6 +53,13 @@ class WakeWordDetector:
         self.wake_words = [w.lower() for w in self.wake_words]
         
         self.logger.info(f"WakeWordDetector initialized with wake words: {self.wake_words}")
+        self.logger.info(f"Detection sensitivity: {self.sensitivity}")
+        
+        # Common transcription variations to help with detection
+        self.transcription_variations = {
+            "jane": ["jane", "jain", "jayne", "jane.", "jane,", "jane!", "jane?"],
+            "hey jane": ["hey jane", "hey jain", "hey jayne", "hey jane.", "hey jane,", "hey jane!"]
+        }
     
     def set_stt_engine(self, stt_engine):
         """
@@ -61,9 +71,18 @@ class WakeWordDetector:
         self.stt_engine = stt_engine
         self.logger.debug("STT engine set for wake word detection")
     
+    def _similarity(self, a: str, b: str) -> float:
+        """Calculate similarity ratio between two strings."""
+        return SequenceMatcher(None, a.lower(), b.lower()).ratio()
+    
     def detect_wake_word(self, text: str) -> bool:
         """
         Detect if wake word is present in text.
+        
+        Uses multiple strategies:
+        1. Exact word boundary matching
+        2. Fuzzy matching for common transcription errors
+        3. Partial matching for wake words within longer phrases
         
         Args:
             text: Text to check for wake word
@@ -74,27 +93,59 @@ class WakeWordDetector:
         if not text:
             return False
         
-        text_lower = text.lower().strip()
+        # Normalize text: remove punctuation, convert to lowercase, normalize whitespace
+        text_normalized = re.sub(r'[^\w\s]', ' ', text.lower())
+        text_normalized = ' '.join(text_normalized.split())  # Normalize whitespace
         
         # Check if any wake word is in the text
         for wake_word in self.wake_words:
+            wake_word_lower = wake_word.lower()
+            
+            # Strategy 1: Exact word boundary matching (most reliable)
             # Check if wake word is at the start
-            if text_lower.startswith(wake_word):
-                # Check if it's followed by space, comma, or end of string
-                if len(text_lower) == len(wake_word) or text_lower[len(wake_word)] in [' ', ',', '.', '!', '?']:
-                    self.logger.info(f"Wake word detected: '{wake_word}'")
+            if text_normalized.startswith(wake_word_lower):
+                # Check if it's followed by space or end of string
+                if len(text_normalized) == len(wake_word_lower) or text_normalized[len(wake_word_lower)] == ' ':
+                    self.logger.info(f"Wake word detected (start): '{wake_word}' in '{text}'")
                     return True
             
-            # Check if wake word appears as a whole word (with spaces around it)
-            pattern = f" {wake_word} "
-            if pattern in text_lower:
-                self.logger.info(f"Wake word detected: '{wake_word}'")
+            # Check if wake word appears as a whole word (with word boundaries)
+            # Use word boundary regex pattern
+            pattern = r'\b' + re.escape(wake_word_lower) + r'\b'
+            if re.search(pattern, text_normalized):
+                self.logger.info(f"Wake word detected (word boundary): '{wake_word}' in '{text}'")
                 return True
             
-            # Check if wake word is at the end
-            if text_lower.endswith(f" {wake_word}") or text_lower.endswith(f",{wake_word}"):
-                self.logger.info(f"Wake word detected: '{wake_word}'")
-                return True
+            # Strategy 2: Fuzzy matching for common transcription errors
+            # Split text into words and check similarity
+            words = text_normalized.split()
+            for word in words:
+                # Check if word is similar to wake word (for single-word wake words)
+                if len(wake_word_lower.split()) == 1:
+                    similarity = self._similarity(word, wake_word_lower)
+                    # Use sensitivity to adjust threshold (lower sensitivity = more lenient)
+                    # Lower threshold for better detection (0.70 to 0.55)
+                    threshold = 0.70 - (self.sensitivity * 0.15)  # Range: 0.70 to 0.55
+                    if similarity >= threshold:
+                        self.logger.info(f"Wake word detected (fuzzy): '{wake_word}' matched '{word}' (similarity: {similarity:.2f}, threshold: {threshold:.2f}) in '{text}'")
+                        return True
+            
+            # Strategy 3: Check for multi-word wake words (e.g., "hey jane")
+            if len(wake_word_lower.split()) > 1:
+                # Check if all words of wake word appear in sequence
+                wake_words_list = wake_word_lower.split()
+                text_words = text_normalized.split()
+                
+                # Try to find the sequence of wake word parts
+                for i in range(len(text_words) - len(wake_words_list) + 1):
+                    # Check if sequence matches
+                    sequence = ' '.join(text_words[i:i+len(wake_words_list)])
+                    similarity = self._similarity(sequence, wake_word_lower)
+                    # Use sensitivity to adjust threshold (lower sensitivity = more lenient)
+                    threshold = 0.80 - (self.sensitivity * 0.15)  # Range: 0.80 to 0.65
+                    if similarity >= threshold:
+                        self.logger.info(f"Wake word detected (multi-word fuzzy): '{wake_word}' matched '{sequence}' (similarity: {similarity:.2f}, threshold: {threshold:.2f}) in '{text}'")
+                        return True
         
         return False
     
@@ -188,22 +239,37 @@ class WakeWordDetector:
                     self.logger.debug("Wake word listening timeout")
                     break
                 
-                # Listen for a short duration
+                # Listen for a short duration (use slightly longer duration for better capture)
                 try:
-                    result = self.stt_engine.listen_and_transcribe(duration=check_interval)
+                    # Use longer duration to capture wake word better (wake words are short, need time to speak)
+                    listen_duration = max(check_interval * 1.5, 2.0)  # At least 2 seconds, or 1.5x check_interval
+                    result = self.stt_engine.listen_and_transcribe(duration=listen_duration)
                     text = result.get('text', '').strip()
                     
+                    # Log all transcription attempts for debugging (use info level for visibility)
                     if text:
-                        self.logger.debug(f"Heard: '{text}'")
-                        
+                        self.logger.info(f"🔍 Listening... Transcribed: '{text}'")
+                        # Check if text contains any part of wake words (for debugging)
+                        for wake_word in self.wake_words:
+                            if wake_word.lower() in text.lower():
+                                self.logger.debug(f"  → Contains wake word part '{wake_word}' but didn't match detection logic")
+                    else:
+                        # Only log empty transcriptions at debug level to reduce noise
+                        self.logger.debug("🔍 Listening... No speech detected in this interval")
+                    
+                    if text:
                         # Check for wake word
                         if self.detect_wake_word(text):
                             detected = True
                             command = self.extract_command(text)
                             
-                            # Call callback with command
+                            # Call callback with command (wrap in try-except to prevent breaking the loop)
                             if self.callback:
-                                self.callback(command)
+                                try:
+                                    self.callback(command)
+                                except Exception as callback_error:
+                                    error_info = handle_error(callback_error, logger=self.logger)
+                                    self.logger.error(f"Error in wake word callback: {error_info['message']}")
                             
                             break
                 
@@ -217,8 +283,7 @@ class WakeWordDetector:
         
         except KeyboardInterrupt:
             self.logger.info("Wake word listening interrupted")
-        finally:
-            self.stop_event.clear()
+        # Don't clear stop_event here - it's managed by start_continuous_listening/stop_continuous_listening
         
         return detected
     
@@ -245,17 +310,31 @@ class WakeWordDetector:
         def listen_loop():
             """Background listening loop."""
             self.logger.info("Starting continuous wake word listening...")
-            while self.is_listening and not self.stop_event.is_set():
-                detected = self.listen_for_wake_word(
-                    callback=self.callback,
-                    duration=check_interval * 2,  # Listen for 2 intervals
-                    check_interval=check_interval
-                )
-                if detected:
-                    # Continue listening after wake word
-                    time.sleep(0.5)
-                else:
-                    time.sleep(0.1)
+            try:
+                while self.is_listening and not self.stop_event.is_set():
+                    try:
+                        detected = self.listen_for_wake_word(
+                            callback=self.callback,
+                            duration=check_interval * 2,  # Listen for 2 intervals
+                            check_interval=check_interval
+                        )
+                        if detected:
+                            # Continue listening after wake word
+                            self.logger.debug("Wake word detected, continuing to listen...")
+                            time.sleep(0.5)
+                        else:
+                            time.sleep(0.1)
+                    except Exception as e:
+                        error_info = handle_error(e, logger=self.logger)
+                        self.logger.error(f"Error in continuous listening loop: {error_info['message']}")
+                        # Continue listening even if there's an error
+                        time.sleep(0.5)
+            except Exception as e:
+                error_info = handle_error(e, logger=self.logger)
+                self.logger.error(f"Fatal error in continuous listening loop: {error_info['message']}")
+            finally:
+                self.logger.info("Continuous wake word listening loop ended")
+                self.is_listening = False
         
         self.listening_thread = Thread(target=listen_loop, daemon=True)
         self.listening_thread.start()
@@ -269,8 +348,15 @@ class WakeWordDetector:
         self.is_listening = False
         self.stop_event.set()
         
+        # Don't try to join if we're in the same thread (check thread identity)
         if self.listening_thread and self.listening_thread.is_alive():
-            self.listening_thread.join(timeout=2.0)
+            current_thread = threading.current_thread()
+            if self.listening_thread != current_thread:
+                # Only join if we're in a different thread
+                self.listening_thread.join(timeout=2.0)
+            else:
+                # We're in the listening thread itself, just set flags and let it exit naturally
+                self.logger.debug("Stopping wake word detection from within listening thread")
         
         self.logger.info("Continuous wake word listening stopped")
     

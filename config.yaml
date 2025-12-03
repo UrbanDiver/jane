@@ -16,7 +16,7 @@ tts:
 
 # Language Model Configuration (OPTIMIZED)
 llm:
-  model_path: "models/Qwen2.5-3B-Instruct-Q5_K_M.gguf"  # Using 3B model for faster inference (expected 40-80 tokens/sec)
+  model_path: "models/Qwen2.5-1.5B-Instruct-Q4_K_M.gguf"  # Using 1.5B model for fastest inference (2.64s FC vs 4.85s, 45% faster!)
   n_gpu_layers: -1  # -1 = all layers on GPU
   n_ctx: 2048        # Increased to accommodate function definitions + conversation (1024 was too small)
   n_batch: 512       # Reduced for faster processing (smaller batches = faster per-token generation)
@@ -59,7 +59,8 @@ input_controller:
 # Assistant Configuration
 max_conversation_history: 20
 wake_word:
-  enabled: false  # Set to true to enable wake word detection
-  wake_words: []  # List of wake words (e.g., ["jane", "hey jane"])
-  check_interval: 1.0  # Interval in seconds to check for wake word
+  enabled: true  # Set to true to enable wake word detection
+  wake_words: ["jane", "hey jane"]  # List of wake words (e.g., ["jane", "hey jane"])
+  check_interval: 1.5  # Interval in seconds to check for wake word (longer = more reliable)
+  sensitivity: 0.3  # Lower = more lenient detection (0.0-1.0)
 

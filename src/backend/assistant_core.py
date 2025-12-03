@@ -27,7 +27,7 @@ from src.utils.logger import get_logger, log_performance, log_timing
 from src.utils.error_handler import handle_error
 from src.utils.sentence_splitter import SentenceSplitter
 from src.utils.memory_manager import get_memory_manager
-from typing import Dict, List, Optional
+from typing import Dict, List, Optional, Tuple
 import json
 import time
 import os
@@ -208,9 +208,15 @@ Be concise and helpful. When asked to perform actions, use the available functio
                 sensitivity=config.wake_word.sensitivity
             )
             # Set STT engine for wake word detection
-            if hasattr(self.stt, 'stt_engine'):
+            # Use StreamingSTT directly (it has listen_and_transcribe method)
+            if hasattr(self.stt, 'listen_and_transcribe'):
+                # self.stt is a StreamingSTT instance - use it directly
+                self.wake_word_detector.set_stt_engine(self.stt)
+            elif hasattr(self.stt, 'stt_engine'):
+                # Fallback: use the underlying STTEngine
                 self.wake_word_detector.set_stt_engine(self.stt.stt_engine)
             elif hasattr(self.stt, 'model'):
+                # Another fallback
                 self.wake_word_detector.set_stt_engine(self.stt)
             self.logger.info(f"Wake word detector initialized with words: {config.wake_word.wake_words}")
         else:
@@ -568,7 +574,21 @@ Be concise and helpful. When asked to perform actions, use the available functio
         max_tokens: int = 512,
         use_functions: bool = True,
         stream: bool = False  # Changed default to False - streaming doesn't work with function calling
-    ) -> str:
+    ) -> tuple[str, bool]:
+        """
+        Process user input and generate response with function calling support.
+        
+        Args:
+            user_input: User's input text
+            max_tokens: Maximum tokens to generate
+            use_functions: Whether to allow function calling
+            stream: Whether to stream the response (default: True)
+            
+        Returns:
+            Tuple of (response_text, was_streamed)
+            - response_text: Assistant's response text
+            - was_streamed: True if response came from streaming (TTS already handled)
+        """
         """
         Process user input and generate response with function calling support.
         
@@ -608,11 +628,12 @@ Be concise and helpful. When asked to perform actions, use the available functio
         
         # Pattern matching for common functions (bypasses LLM for simple queries)
         # This provides instant responses for time/date queries (45s -> <1s)
+        was_streamed = False  # Track if streaming was used
         if use_functions:
             pattern_match_result = self._try_pattern_matching(user_input)
             if pattern_match_result:
                 self.logger.debug(f"Pattern match found, executing function directly (bypassing LLM)")
-                return pattern_match_result
+                return pattern_match_result, False  # Pattern matching doesn't use streaming
         
         # Prepare function calling if enabled
         # Smart detection: only use function calling for queries that likely need functions
@@ -674,6 +695,7 @@ Be concise and helpful. When asked to perform actions, use the available functio
                 )
                 # Streaming doesn't support function calling, so we're done
                 final_response = response
+                was_streamed = True  # Mark that streaming was used (TTS already handled)
                 # Execute AFTER_LLM hook
                 self.plugin_manager.execute_hook(PluginHook.AFTER_LLM, response)
                 break
@@ -763,11 +785,13 @@ Be concise and helpful. When asked to perform actions, use the available functio
             else:
                 # No function calls, we're done
                 final_response = response
+                was_streamed = False  # Non-streaming path
                 break
         
         if final_response is None:
             # Max iterations reached, use last response
             final_response = response
+            was_streamed = False
             self.logger.warning(f"Function call chain reached max iterations ({max_iterations})")
         
         # If final response is empty after function calls, create a natural response from function results
@@ -800,7 +824,7 @@ Be concise and helpful. When asked to perform actions, use the available functio
         if len(self.conversation_history) % 10 == 0:
             self.conversation_state.save()
         
-        return final_response
+        return final_response, was_streamed
     
     def _process_streaming_response(
         self,
@@ -968,37 +992,99 @@ Be concise and helpful. When asked to perform actions, use the available functio
             self.logger.info("Say a wake word to activate, or 'goodbye'/'exit' to stop.")
             self.speak("Hello! I'm Jane. Say my name to activate me.")
             
+            # Exit flag for wake word mode
+            should_exit = threading.Event()
+            
             # Start continuous wake word listening
             def on_wake_word_detected(command: str):
-                """Handle wake word detection."""
+                """Handle wake word detection and enter conversation mode."""
                 self.logger.info(f"🔔 Wake word detected! Command: '{command}'")
                 
+                # Temporarily stop wake word detection during conversation
+                if self.wake_word_detector:
+                    self.wake_word_detector.stop_continuous_listening()
+                
+                # Enter conversation mode
+                self.logger.info("Entering conversation mode...")
+                
+                # Prompt only once when entering conversation mode (if no initial command)
+                has_prompted = False
                 if not command.strip():
-                    # Just wake word, no command - prompt for input
+                    # No initial command, prompt once
                     self.speak("Yes? How can I help you?")
-                    # Listen for actual command
-                    user_input = self.listen(duration=5)
-                    if user_input.strip():
-                        self._process_user_input(user_input)
-                else:
-                    # Command included with wake word
-                    self._process_user_input(command)
+                    has_prompted = True
+                
+                # Process initial command if provided
+                if command.strip():
+                    self._process_user_input_conversation(command)
+                
+                # Continue conversation loop - listen silently after initial prompt
+                while True:
+                    try:
+                        # Just listen silently - no more prompts
+                        # Listen for user input
+                        user_input = self.listen(duration=5)
+                        
+                        if not user_input.strip():
+                            # No input, continue listening
+                            continue
+                        
+                        # Check if user wants to exit conversation mode or application FIRST (before processing)
+                        # This must happen immediately after getting input
+                        should_exit_conv, should_exit_app = self._should_exit_conversation(user_input)
+                        if should_exit_conv:
+                            if should_exit_app:
+                                # Full exit - exit the application
+                                self.logger.info(f"Full exit command detected: '{user_input}' - Exiting application")
+                                self.speak("Goodbye! Have a great day!")
+                                should_exit.set()  # Set the exit flag to stop the main loop
+                                break
+                            else:
+                                # Just exit conversation mode - return to wake word detection
+                                self.logger.info(f"Exit command detected: '{user_input}' - Exiting conversation mode")
+                                self.speak("Okay, I'm listening for the wake word again.")
+                                # Force break out of the loop
+                                break
+                        
+                        # Only process if not an exit command
+                        self.logger.debug(f"Processing input (not an exit command): '{user_input}'")
+                        self._process_user_input_conversation(user_input)
+                        
+                    except Exception as e:
+                        error_info = handle_error(e, logger=self.logger)
+                        self.logger.error(f"Error in conversation mode: {error_info['message']}")
+                        # Continue conversation even on error
+                        continue
+                
+                # Resume wake word detection (only if not exiting entirely)
+                if self.wake_word_detector and not should_exit.is_set():
+                    self.logger.info("Resuming wake word detection...")
+                    self.wake_word_detector.start_continuous_listening(
+                        callback=on_wake_word_detected,
+                        check_interval=self.config.wake_word.check_interval
+                    )
             
+            # Start initial wake word detection
             self.wake_word_detector.start_continuous_listening(
                 callback=on_wake_word_detected,
                 check_interval=self.config.wake_word.check_interval
             )
             
-            # Keep running until interrupted
+            # Keep running until interrupted or exit is requested
             try:
-                while True:
-                    time.sleep(1)
-                    # Check for exit (could be done via a command)
+                while not should_exit.is_set():
+                    time.sleep(0.5)  # Check more frequently for exit
             except KeyboardInterrupt:
                 self.logger.info("Exiting (KeyboardInterrupt)...")
+            finally:
+                # Stop wake word detector and say goodbye
                 if self.wake_word_detector:
                     self.wake_word_detector.stop_continuous_listening()
-                self.speak("Goodbye!")
+                if should_exit.is_set():
+                    self.logger.info("Exiting (user requested)...")
+                    # Goodbye already spoken in _process_user_input
+                else:
+                    self.speak("Goodbye!")
         else:
             # Standard mode (no wake word)
             self.logger.info("Voice interaction loop starting...")
@@ -1026,6 +1112,99 @@ Be concise and helpful. When asked to perform actions, use the available functio
                     error_info = handle_error(e, context={"user_input": user_input if 'user_input' in locals() else None}, logger=self.logger)
                     self.logger.error(f"Error in voice loop: {error_info['message']}", exc_info=True)
     
+    def _should_exit_conversation(self, user_input: str) -> Tuple[bool, bool]:
+        """
+        Check if user wants to exit conversation mode or fully exit application.
+        
+        Args:
+            user_input: User's input text
+            
+        Returns:
+            Tuple of (should_exit_conversation, should_exit_application)
+            - should_exit_conversation: True if should exit conversation mode (return to wake word)
+            - should_exit_application: True if should fully exit the application
+        """
+        user_input_lower = user_input.lower().strip()
+        
+        # Phrases that fully exit the application
+        full_exit_phrases = [
+            "exit",
+            "quit",
+            "goodbye",
+            "bye"
+        ]
+        
+        # Phrases that just exit conversation mode (return to wake word detection)
+        conversation_exit_phrases = [
+            "thank you",
+            "thanks",
+            "stop listening",
+            "stop",
+            "that's all",
+            "that's it",
+            "done",
+            "finished",
+            "all done"
+        ]
+        
+        # Check for full exit phrases first
+        for phrase in full_exit_phrases:
+            if (user_input_lower == phrase or 
+                user_input_lower.startswith(phrase + " ") or
+                user_input_lower.endswith(" " + phrase) or
+                user_input_lower.endswith(" " + phrase + ".") or
+                user_input_lower.endswith(" " + phrase + "!") or
+                user_input_lower.endswith(" " + phrase + "?") or
+                " " + phrase + " " in user_input_lower):
+                self.logger.info(f"Full exit phrase '{phrase}' detected in '{user_input_lower}'")
+                return True, True  # Exit conversation AND application
+        
+        # Check for conversation exit phrases
+        for phrase in conversation_exit_phrases:
+            if (user_input_lower == phrase or 
+                user_input_lower.startswith(phrase + " ") or
+                user_input_lower.endswith(" " + phrase) or
+                user_input_lower.endswith(" " + phrase + ".") or
+                user_input_lower.endswith(" " + phrase + "!") or
+                user_input_lower.endswith(" " + phrase + "?") or
+                " " + phrase + " " in user_input_lower):
+                self.logger.info(f"Conversation exit phrase '{phrase}' detected in '{user_input_lower}'")
+                return True, False  # Exit conversation only, return to wake word
+        
+        return False, False  # Don't exit
+    
+    def _process_user_input_conversation(self, user_input: str) -> None:
+        """
+        Process user input in conversation mode (doesn't exit, just processes).
+        
+        Args:
+            user_input: User's input text
+        """
+        self.logger.info(f"👤 You: {user_input}")
+        
+        # Process command (with streaming enabled)
+        response, was_streamed = self.process_command(user_input, stream=True)
+        
+        # Log the response (but format tool calls nicely)
+        if response and response.strip():
+            # Check if response looks like a tool call format (shouldn't happen, but log it)
+            if response.strip().startswith('<tool_call>'):
+                self.logger.info(f"🤖 Jane: {response}")
+                # Don't speak tool call tags - function should be executed and final response spoken
+            else:
+                self.logger.info(f"🤖 Jane: {response}")
+                # Only speak if response wasn't streamed (streaming already handled TTS)
+                # Pattern matching and function calling responses need to be spoken here
+                if not was_streamed:
+                    self.speak(response)
+        else:
+            self.logger.info(f"🤖 Jane: (empty response)")
+        
+        # Periodic memory cleanup
+        if len(self.conversation_history) % 10 == 0:
+            self.memory_manager.clear_gpu_cache()
+            self.memory_manager.log_memory_usage("(periodic cleanup)")
+    
     def _process_user_input(self, user_input: str) -> bool:
         """
         Process user input and generate response.
@@ -1045,7 +1224,7 @@ Be concise and helpful. When asked to perform actions, use the available functio
             return True  # Signal to exit the loop
         
         # Process command (with streaming enabled)
-        response = self.process_command(user_input, stream=True)
+        response, was_streamed = self.process_command(user_input, stream=True)
         
         # Log the response (but format tool calls nicely)
         if response and response.strip():
@@ -1055,11 +1234,10 @@ Be concise and helpful. When asked to perform actions, use the available functio
                 # Don't speak tool call tags - function should be executed and final response spoken
             else:
                 self.logger.info(f"🤖 Jane: {response}")
-                # Always speak the final response (after function execution if applicable)
-                # Pattern matching responses are already handled in process_command
-                # Streaming responses are already spoken by _process_streaming_response
-                # Function calling responses need to be spoken here
-                self.speak(response)
+                # Only speak if response wasn't streamed (streaming already handled TTS)
+                # Pattern matching and function calling responses need to be spoken here
+                if not was_streamed:
+                    self.speak(response)
         else:
             self.logger.info(f"🤖 Jane: (empty response)")
         
